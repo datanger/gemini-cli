@@ -18,6 +18,8 @@ import {
   DEFAULT_GEMINI_EMBEDDING_MODEL,
   FileDiscoveryService,
   TelemetryTarget,
+  createContentGeneratorConfig,
+  AuthType,
 } from '@google/gemini-cli-core';
 import { Settings } from './settings.js';
 
@@ -53,6 +55,7 @@ interface CliArgs {
   telemetryTarget: string | undefined;
   telemetryOtlpEndpoint: string | undefined;
   telemetryLogPrompts: boolean | undefined;
+  provider: string | undefined;
 }
 
 async function parseArguments(): Promise<CliArgs> {
@@ -128,6 +131,12 @@ async function parseArguments(): Promise<CliArgs> {
       description: 'Enables checkpointing of file edits',
       default: false,
     })
+    .option('provider', {
+      type: 'string',
+      description: 'AI model provider to use',
+      choices: ['gemini', 'deepseek', 'kimi', 'ollama'],
+      default: 'gemini',
+    })
     .version(await getCliVersion()) // This will enable the --version flag based on package.json
     .alias('v', 'version')
     .help()
@@ -169,6 +178,11 @@ export async function loadCliConfig(
   loadEnvironment();
 
   const argv = await parseArguments();
+  
+  // 设置provider环境变量
+  if (argv.provider && argv.provider !== 'gemini') {
+    process.env.GEMINI_PROVIDER = argv.provider;
+  }
   const debugMode = argv.debug || false;
 
   // Set the context filename in the server's memoryTool module BEFORE loading memory
@@ -218,16 +232,16 @@ export async function loadCliConfig(
       argv.show_memory_usage || settings.showMemoryUsage || false,
     accessibility: settings.accessibility,
     telemetry: {
-      enabled: argv.telemetry ?? settings.telemetry?.enabled,
+      enabled: false, // 强制禁用遥测
       target: (argv.telemetryTarget ??
         settings.telemetry?.target) as TelemetryTarget,
       otlpEndpoint:
         argv.telemetryOtlpEndpoint ??
         process.env.OTEL_EXPORTER_OTLP_ENDPOINT ??
         settings.telemetry?.otlpEndpoint,
-      logPrompts: argv.telemetryLogPrompts ?? settings.telemetry?.logPrompts,
+      logPrompts: false, // 强制禁用提示日志
     },
-    usageStatisticsEnabled: settings.usageStatisticsEnabled ?? true,
+    usageStatisticsEnabled: false, // 强制禁用使用统计
     // Git-aware file filtering settings
     fileFiltering: {
       respectGitIgnore: settings.fileFiltering?.respectGitIgnore,

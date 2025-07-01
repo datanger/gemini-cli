@@ -16,6 +16,7 @@ import {
 import { createCodeAssistContentGenerator } from '../code_assist/codeAssist.js';
 import { DEFAULT_GEMINI_MODEL } from '../config/models.js';
 import { getEffectiveModel } from './modelCheck.js';
+import { DeepseekAdapter } from './deepseekAdapter.js';
 
 /**
  * Interface abstracting the core functionalities for generating content and counting tokens.
@@ -108,6 +109,63 @@ export async function createContentGenerator(
       'User-Agent': `GeminiCLI/${version} (${process.platform}; ${process.arch})`,
     },
   };
+
+  // 从环境变量获取provider，默认为gemini
+  const provider = process.env.GEMINI_PROVIDER || 'gemini';
+  
+  console.log(`🔍 Debug: Provider = ${provider}, GEMINI_PROVIDER = ${process.env.GEMINI_PROVIDER}`);
+
+  if (provider === 'deepseek') {
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    console.log(`🔍 Debug: DEEPSEEK_API_KEY = ${apiKey ? 'SET' : 'NOT SET'}`);
+    if (!apiKey) {
+      throw new Error('DEEPSEEK_API_KEY environment variable is required for Deepseek provider');
+    }
+    console.log('🔍 Debug: Using real Deepseek adapter');
+    return new DeepseekAdapter(apiKey);
+  }
+
+  if (provider !== 'gemini') {
+    // 返回一个模拟适配器
+    return {
+      async generateContent(request: any) {
+        const responseText = `这是来自 ${provider} 的模拟响应。模型: ${request.model}`;
+        return {
+          candidates: [{
+            content: {
+              parts: [{ text: responseText }]
+            },
+            finishReason: 'STOP'
+          }],
+          usageMetadata: {
+            promptTokenCount: 1,
+            candidatesTokenCount: 1,
+            totalTokenCount: 2
+          },
+          text: responseText
+        } as GenerateContentResponse;
+      },
+      async generateContentStream(request: any) {
+        const responseText = `这是来自 ${provider} 的流式模拟响应。模型: ${request.model}`;
+        return (async function* () {
+          const words = responseText.split(' ');
+          for (const word of words) {
+            yield {
+              candidates: [{
+                content: {
+                  parts: [{ text: word + ' ' }]
+                }
+              }]
+            };
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        })();
+      },
+      async countTokens() { return { totalTokens: 1 }; },
+      async embedContent() { throw new Error('Not implemented'); }
+    } as ContentGenerator;
+  }
+
   if (config.authType === AuthType.LOGIN_WITH_GOOGLE_PERSONAL) {
     return createCodeAssistContentGenerator(httpOptions, config.authType);
   }
