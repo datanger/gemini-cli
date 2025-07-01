@@ -232,7 +232,8 @@ export class GeminiClient {
     for await (const event of resultStream) {
       yield event;
     }
-    if (!turn.pendingToolCalls.length && signal && !signal.aborted) {
+    
+    if (turn.pendingToolCalls.length > 0 && signal && !signal.aborted) {
       const nextSpeakerCheck = await checkNextSpeaker(
         this.getChat(),
         this,

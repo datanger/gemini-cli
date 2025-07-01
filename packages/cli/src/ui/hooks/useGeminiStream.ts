@@ -111,7 +111,11 @@ export const useGeminiStream = (
     useReactToolScheduler(
       async (completedToolCallsFromScheduler) => {
         // This onComplete is called when ALL scheduled tools for a given batch are done.
+        onDebugMessage(`onComplete callback triggered with ${completedToolCallsFromScheduler.length} completed tools`);
+        
         if (completedToolCallsFromScheduler.length > 0) {
+          onDebugMessage(`onComplete: Processing ${completedToolCallsFromScheduler.length} completed tools`);
+          
           // Add the final state of these tools to the history for display.
           addItem(
             mapTrackedToolCallsToDisplay(
@@ -124,6 +128,8 @@ export const useGeminiStream = (
           await handleCompletedTools(
             completedToolCallsFromScheduler as TrackedToolCall[],
           );
+        } else {
+          onDebugMessage('onComplete callback triggered with empty array - ignoring to prevent loop');
         }
       },
       config,
@@ -435,7 +441,12 @@ export const useGeminiStream = (
     ): Promise<StreamProcessingStatus> => {
       let geminiMessageBuffer = '';
       const toolCallRequests: ToolCallRequestInfo[] = [];
+      
+      onDebugMessage('processGeminiStreamEvents: Starting to process stream events');
+      
       for await (const event of stream) {
+        onDebugMessage(`processGeminiStreamEvents: Processing event type: ${event.type}`);
+        
         switch (event.type) {
           case ServerGeminiEventType.Thought:
             setThought(event.value);
@@ -448,6 +459,7 @@ export const useGeminiStream = (
             );
             break;
           case ServerGeminiEventType.ToolCallRequest:
+            onDebugMessage(`processGeminiStreamEvents: Received tool call request: ${event.value.name}`);
             toolCallRequests.push(event.value);
             break;
           case ServerGeminiEventType.UserCancelled:
@@ -470,8 +482,14 @@ export const useGeminiStream = (
           }
         }
       }
+      
+      onDebugMessage(`processGeminiStreamEvents: Stream processing completed, found ${toolCallRequests.length} tool calls`);
+      
       if (toolCallRequests.length > 0) {
+        onDebugMessage(`processGeminiStreamEvents: Scheduling ${toolCallRequests.length} tool calls`);
         scheduleToolCalls(toolCallRequests, signal);
+      } else {
+        onDebugMessage('processGeminiStreamEvents: No tool calls to schedule, stream processing complete');
       }
       return StreamProcessingStatus.Completed;
     },
@@ -481,17 +499,28 @@ export const useGeminiStream = (
       handleErrorEvent,
       scheduleToolCalls,
       handleChatCompressionEvent,
+      onDebugMessage,
     ],
   );
 
   const submitQuery = useCallback(
     async (query: PartListUnion, options?: { isContinuation: boolean }) => {
+      onDebugMessage(`submitQuery called with isContinuation: ${options?.isContinuation}, streamingState: ${streamingState}`);
+      
+      // 严格的循环检测 - 防止重复调用
+      if (isResponding) {
+        onDebugMessage('submitQuery: Skipping because isResponding is true (already processing)');
+        return;
+      }
+      
       if (
         (streamingState === StreamingState.Responding ||
           streamingState === StreamingState.WaitingForConfirmation) &&
         !options?.isContinuation
-      )
+      ) {
+        onDebugMessage('submitQuery: Skipping because streamingState is not idle and not continuation');
         return;
+      }
 
       const userMessageTimestamp = Date.now();
       setShowHelp(false);
@@ -507,6 +536,7 @@ export const useGeminiStream = (
       );
 
       if (!shouldProceed || queryToSend === null) {
+        onDebugMessage('submitQuery: Query preparation resulted in no action needed');
         return;
       }
 
@@ -522,6 +552,7 @@ export const useGeminiStream = (
         );
 
         if (processingStatus === StreamProcessingStatus.UserCancelled) {
+          onDebugMessage('submitQuery: Processing was cancelled by user');
           return;
         }
 
@@ -529,10 +560,14 @@ export const useGeminiStream = (
           addItem(pendingHistoryItemRef.current, userMessageTimestamp);
           setPendingHistoryItem(null);
         }
+        
+        onDebugMessage('submitQuery: Processing completed successfully');
       } catch (error: unknown) {
         if (error instanceof UnauthorizedError) {
+          onDebugMessage('submitQuery: Unauthorized error, triggering auth error handler');
           onAuthError();
         } else if (!isNodeError(error) || error.name !== 'AbortError') {
+          onDebugMessage(`submitQuery: Error occurred: ${getErrorMessage(error) || 'Unknown error'}`);
           addItem(
             {
               type: MessageType.ERROR,
@@ -546,6 +581,7 @@ export const useGeminiStream = (
         }
       } finally {
         setIsResponding(false);
+        onDebugMessage('submitQuery: Completed, isResponding set to false');
       }
     },
     [
@@ -560,14 +596,16 @@ export const useGeminiStream = (
       geminiClient,
       onAuthError,
       config,
+      onDebugMessage,
+      isResponding,
     ],
   );
 
   const handleCompletedTools = useCallback(
     async (completedToolCallsFromScheduler: TrackedToolCall[]) => {
-      if (isResponding) {
-        return;
-      }
+      const callStack = new Error().stack;
+      onDebugMessage(`handleCompletedTools: Called from ${callStack?.split('\n')[2] || 'unknown'}`);
+      onDebugMessage(`handleCompletedTools: Processing ${completedToolCallsFromScheduler.length} completed tools`);
 
       const completedAndReadyToSubmitTools =
         completedToolCallsFromScheduler.filter(
@@ -591,11 +629,14 @@ export const useGeminiStream = (
           },
         );
 
+      onDebugMessage(`handleCompletedTools: Found ${completedAndReadyToSubmitTools.length} completed tools`);
+
       // Finalize any client-initiated tools as soon as they are done.
       const clientTools = completedAndReadyToSubmitTools.filter(
         (t) => t.request.isClientInitiated,
       );
       if (clientTools.length > 0) {
+        onDebugMessage(`handleCompletedTools: Processing ${clientTools.length} client-initiated tools`);
         markToolsAsSubmitted(clientTools.map((t) => t.request.callId));
       }
 
@@ -608,9 +649,8 @@ export const useGeminiStream = (
       );
 
       if (newSuccessfulMemorySaves.length > 0) {
-        // Perform the refresh only if there are new ones.
+        onDebugMessage(`handleCompletedTools: Processing ${newSuccessfulMemorySaves.length} new memory saves`);
         void performMemoryRefresh();
-        // Mark them as processed so we don't do this again on the next render.
         newSuccessfulMemorySaves.forEach((t) =>
           processedMemoryToolsRef.current.add(t.request.callId),
         );
@@ -620,7 +660,10 @@ export const useGeminiStream = (
         (t) => !t.request.isClientInitiated,
       );
 
+      onDebugMessage(`handleCompletedTools: Found ${geminiTools.length} Gemini-initiated tools`);
+
       if (geminiTools.length === 0) {
+        onDebugMessage('handleCompletedTools: No Gemini tools to process, returning');
         return;
       }
 
@@ -630,9 +673,8 @@ export const useGeminiStream = (
       );
 
       if (allToolsCancelled) {
+        onDebugMessage('handleCompletedTools: All tools were cancelled, not submitting response');
         if (geminiClient) {
-          // We need to manually add the function responses to the history
-          // so the model knows the tools were cancelled.
           const responsesToAdd = geminiTools.flatMap(
             (toolCall) => toolCall.response.responseParts,
           );
@@ -666,6 +708,8 @@ export const useGeminiStream = (
         (toolCall) => toolCall.request.callId,
       );
 
+      onDebugMessage(`handleCompletedTools: Submitting ${responsesToSend.length} tool responses to Gemini`);
+
       markToolsAsSubmitted(callIdsToMarkAsSubmitted);
       submitQuery(mergePartListUnions(responsesToSend), {
         isContinuation: true,
@@ -677,6 +721,7 @@ export const useGeminiStream = (
       markToolsAsSubmitted,
       geminiClient,
       performMemoryRefresh,
+      onDebugMessage,
     ],
   );
 

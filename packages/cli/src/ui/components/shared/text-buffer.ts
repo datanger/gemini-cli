@@ -49,7 +49,6 @@ function stripUnsafeCharacters(str: string): string {
   const stripped = stripAnsi(str);
   return toCodePoints(stripAnsi(stripped))
     .filter((char) => {
-      if (char.length > 1) return false;
       const code = char.codePointAt(0);
       if (code === undefined) {
         return false;
@@ -572,21 +571,28 @@ export function useTextBuffer({
       const expandedOps: UpdateOperation[] = [];
       for (const op of ops) {
         if (op.type === 'insert') {
-          let currentText = '';
-          for (const char of toCodePoints(op.payload)) {
-            if (char.codePointAt(0) === 127) {
-              // \x7f
-              if (currentText.length > 0) {
-                expandedOps.push({ type: 'insert', payload: currentText });
-                currentText = '';
+          // Handle special case for backspace character (0x7f)
+          if (op.payload.includes('\x7f')) {
+            let currentText = '';
+            for (const char of toCodePoints(op.payload)) {
+              if (char.codePointAt(0) === 127) {
+                // \x7f
+                if (currentText.length > 0) {
+                  expandedOps.push({ type: 'insert', payload: currentText });
+                  currentText = '';
+                }
+                expandedOps.push({ type: 'backspace' });
+              } else {
+                currentText += char;
               }
-              expandedOps.push({ type: 'backspace' });
-            } else {
-              currentText += char;
             }
-          }
-          if (currentText.length > 0) {
-            expandedOps.push({ type: 'insert', payload: currentText });
+            if (currentText.length > 0) {
+              expandedOps.push({ type: 'insert', payload: currentText });
+            }
+          } else {
+            // For normal text (including multi-byte characters like Chinese), 
+            // insert the entire payload as a single operation
+            expandedOps.push({ type: 'insert', payload: op.payload });
           }
         } else {
           expandedOps.push(op);
@@ -1278,6 +1284,24 @@ export function useTextBuffer({
         backspace();
       else if (key.name === 'delete' || (key.ctrl && key.name === 'd')) del();
       else if (input && !key.ctrl && !key.meta) {
+        // Debug: Log the input sequence for Chinese characters
+        dbg('handleInput: inserting input', { 
+          input, 
+          inputLength: input.length, 
+          inputBytes: Buffer.from(input).length,
+          inputCharCodes: Array.from(input).map(c => c.charCodeAt(0).toString(16))
+        });
+        
+        // Check if this might be a partial multi-byte character
+        const inputBuffer = Buffer.from(input);
+        if (inputBuffer.length === 1 && inputBuffer[0] >= 0x80) {
+          // This is likely a partial multi-byte character, skip it
+          dbg('handleInput: skipping partial multi-byte character', { 
+            byte: inputBuffer[0].toString(16) 
+          });
+          return false;
+        }
+        
         insert(input);
       }
 
