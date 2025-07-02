@@ -1,0 +1,31 @@
+#!/usr/bin/env node
+
+/**
+ * Gemini CLI Executable
+ * This script allows you to run the Gemini CLI directly
+ */
+
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { spawn } from 'child_process';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Path to the start script
+const startScript = join(__dirname, 'scripts', 'start.js');
+
+// Spawn the CLI process
+const child = spawn('node', [startScript, ...process.argv.slice(2)], {
+  stdio: 'inherit',
+  cwd: __dirname
+});
+
+child.on('exit', (code) => {
+  process.exit(code || 0);
+});
+
+child.on('error', (err) => {
+  console.error('Failed to start Gemini CLI:', err);
+  process.exit(1);
+}); 

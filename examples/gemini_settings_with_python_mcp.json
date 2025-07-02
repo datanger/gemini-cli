@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "pythonMCP": {
+      "command": "python3",
+      "args": ["examples/simple_python_mcp_server.py"],
+      "cwd": ".",
+      "timeout": 10000,
+      "trust": true
+    }
+  }
+} 

@@ -1,0 +1,173 @@
+Checking build status...
+Build is up-to-date.
+[DEBUG] CLI: Delegating hierarchical memory load to server for CWD: /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [MemoryDiscovery] Loading server hierarchical memory for CWD: /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [MemoryDiscovery] Searching for GEMINI.md starting from CWD: /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [MemoryDiscovery] User home directory: /home/niejie
+[DEBUG] [MemoryDiscovery] Global GEMINI.md not found or not readable: /home/niejie/.gemini/GEMINI.md
+[DEBUG] [MemoryDiscovery] Determined project root: /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [MemoryDiscovery] Checking for GEMINI.md in (upward scan): /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [MemoryDiscovery] Found readable upward GEMINI.md: /home/niejie/work/Code/tools/gemini-cli/GEMINI.md
+[DEBUG] [MemoryDiscovery] Checking for GEMINI.md in (upward scan): /home/niejie/work/Code/tools
+[DEBUG] [MemoryDiscovery] Upward GEMINI.md not found or not readable in: /home/niejie/work/Code/tools
+[DEBUG] [MemoryDiscovery] Reached ultimate stop directory for upward scan: /home/niejie/work/Code/tools
+[DEBUG] [BfsFileSearch] Scanning [1/200]: /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [BfsFileSearch] Scanning [2/200]: /home/niejie/work/Code/tools/gemini-cli/.gcp
+[DEBUG] [BfsFileSearch] Scanning [3/200]: /home/niejie/work/Code/tools/gemini-cli/.gemini
+[DEBUG] [BfsFileSearch] Scanning [4/200]: /home/niejie/work/Code/tools/gemini-cli/.github
+[DEBUG] [BfsFileSearch] Scanning [5/200]: /home/niejie/work/Code/tools/gemini-cli/.vscode
+[DEBUG] [BfsFileSearch] Scanning [6/200]: /home/niejie/work/Code/tools/gemini-cli/docs
+[DEBUG] [BfsFileSearch] Scanning [7/200]: /home/niejie/work/Code/tools/gemini-cli/eslint-rules
+[DEBUG] [BfsFileSearch] Scanning [8/200]: /home/niejie/work/Code/tools/gemini-cli/examples
+[DEBUG] [BfsFileSearch] Scanning [9/200]: /home/niejie/work/Code/tools/gemini-cli/integration-tests
+[DEBUG] [BfsFileSearch] Scanning [10/200]: /home/niejie/work/Code/tools/gemini-cli/packages
+[DEBUG] [BfsFileSearch] Scanning [11/200]: /home/niejie/work/Code/tools/gemini-cli/scripts
+[DEBUG] [BfsFileSearch] Scanning [12/200]: /home/niejie/work/Code/tools/gemini-cli/.github/ISSUE_TEMPLATE
+[DEBUG] [BfsFileSearch] Scanning [13/200]: /home/niejie/work/Code/tools/gemini-cli/.github/actions
+[DEBUG] [BfsFileSearch] Scanning [14/200]: /home/niejie/work/Code/tools/gemini-cli/.github/workflows
+[DEBUG] [BfsFileSearch] Scanning [15/200]: /home/niejie/work/Code/tools/gemini-cli/docs/assets
+[DEBUG] [BfsFileSearch] Scanning [16/200]: /home/niejie/work/Code/tools/gemini-cli/docs/cli
+[DEBUG] [BfsFileSearch] Scanning [17/200]: /home/niejie/work/Code/tools/gemini-cli/docs/core
+[DEBUG] [BfsFileSearch] Scanning [18/200]: /home/niejie/work/Code/tools/gemini-cli/docs/tools
+[DEBUG] [BfsFileSearch] Scanning [19/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli
+[DEBUG] [BfsFileSearch] Scanning [20/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core
+[DEBUG] [BfsFileSearch] Scanning [21/200]: /home/niejie/work/Code/tools/gemini-cli/.github/actions/post-coverage-comment
+[DEBUG] [BfsFileSearch] Scanning [22/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/coverage
+[DEBUG] [BfsFileSearch] Scanning [23/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src
+[DEBUG] [BfsFileSearch] Scanning [24/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/coverage
+[DEBUG] [BfsFileSearch] Scanning [25/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src
+[DEBUG] [BfsFileSearch] Scanning [26/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/config
+[DEBUG] [BfsFileSearch] Scanning [27/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/generated
+[DEBUG] [BfsFileSearch] Scanning [28/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui
+[DEBUG] [BfsFileSearch] Scanning [29/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/utils
+[DEBUG] [BfsFileSearch] Scanning [30/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/__mocks__
+[DEBUG] [BfsFileSearch] Scanning [31/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/code_assist
+[DEBUG] [BfsFileSearch] Scanning [32/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/config
+[DEBUG] [BfsFileSearch] Scanning [33/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/core
+[DEBUG] [BfsFileSearch] Scanning [34/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/services
+[DEBUG] [BfsFileSearch] Scanning [35/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/telemetry
+[DEBUG] [BfsFileSearch] Scanning [36/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/tools
+[DEBUG] [BfsFileSearch] Scanning [37/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/utils
+[DEBUG] [BfsFileSearch] Scanning [38/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/components
+[DEBUG] [BfsFileSearch] Scanning [39/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/contexts
+[DEBUG] [BfsFileSearch] Scanning [40/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/editors
+[DEBUG] [BfsFileSearch] Scanning [41/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/hooks
+[DEBUG] [BfsFileSearch] Scanning [42/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/privacy
+[DEBUG] [BfsFileSearch] Scanning [43/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/themes
+[DEBUG] [BfsFileSearch] Scanning [44/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/utils
+[DEBUG] [BfsFileSearch] Scanning [45/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/__mocks__/fs
+[DEBUG] [BfsFileSearch] Scanning [46/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/core/__snapshots__
+[DEBUG] [BfsFileSearch] Scanning [47/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/telemetry/clearcut-logger
+[DEBUG] [BfsFileSearch] Scanning [48/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/components/__snapshots__
+[DEBUG] [BfsFileSearch] Scanning [49/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/components/messages
+[DEBUG] [BfsFileSearch] Scanning [50/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/components/shared
+[DEBUG] [MemoryDiscovery] Found downward GEMINI.md files (sorted): ["/home/niejie/work/Code/tools/gemini-cli/GEMINI.md"]
+[DEBUG] [MemoryDiscovery] Final ordered GEMINI.md paths to read: ["/home/niejie/work/Code/tools/gemini-cli/GEMINI.md"]
+[DEBUG] [MemoryDiscovery] Successfully read and processed imports: /home/niejie/work/Code/tools/gemini-cli/GEMINI.md (Length: 18634)
+[DEBUG] [MemoryDiscovery] Combined instructions length: 18704
+[DEBUG] [MemoryDiscovery] Combined instructions (snippet): --- Context from: GEMINI.md ---
+## Building and running
+
+Before submitting any changes, it is crucial to validate them by running the full preflight check. This command will build the repository, run all tests, check for type errors, and lint the code.
+
+To run the full suite of checks, execute the following command:
+
+```bash
+npm run preflight
+```
+
+This single command ensures that your changes meet all the quality gates of the project. While you can run the individual steps (`build`, `test`, `typ...
+Data collection is disabled.
+[DEBUG] CLI: Delegating hierarchical memory load to server for CWD: /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [MemoryDiscovery] Loading server hierarchical memory for CWD: /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [MemoryDiscovery] Searching for GEMINI.md starting from CWD: /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [MemoryDiscovery] User home directory: /home/niejie
+[DEBUG] [MemoryDiscovery] Global GEMINI.md not found or not readable: /home/niejie/.gemini/GEMINI.md
+[DEBUG] [MemoryDiscovery] Determined project root: /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [MemoryDiscovery] Checking for GEMINI.md in (upward scan): /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [MemoryDiscovery] Found readable upward GEMINI.md: /home/niejie/work/Code/tools/gemini-cli/GEMINI.md
+[DEBUG] [MemoryDiscovery] Checking for GEMINI.md in (upward scan): /home/niejie/work/Code/tools
+[DEBUG] [MemoryDiscovery] Upward GEMINI.md not found or not readable in: /home/niejie/work/Code/tools
+[DEBUG] [MemoryDiscovery] Reached ultimate stop directory for upward scan: /home/niejie/work/Code/tools
+[DEBUG] [BfsFileSearch] Scanning [1/200]: /home/niejie/work/Code/tools/gemini-cli
+[DEBUG] [BfsFileSearch] Scanning [2/200]: /home/niejie/work/Code/tools/gemini-cli/.gcp
+[DEBUG] [BfsFileSearch] Scanning [3/200]: /home/niejie/work/Code/tools/gemini-cli/.gemini
+[DEBUG] [BfsFileSearch] Scanning [4/200]: /home/niejie/work/Code/tools/gemini-cli/.github
+[DEBUG] [BfsFileSearch] Scanning [5/200]: /home/niejie/work/Code/tools/gemini-cli/.vscode
+[DEBUG] [BfsFileSearch] Scanning [6/200]: /home/niejie/work/Code/tools/gemini-cli/docs
+[DEBUG] [BfsFileSearch] Scanning [7/200]: /home/niejie/work/Code/tools/gemini-cli/eslint-rules
+[DEBUG] [BfsFileSearch] Scanning [8/200]: /home/niejie/work/Code/tools/gemini-cli/examples
+[DEBUG] [BfsFileSearch] Scanning [9/200]: /home/niejie/work/Code/tools/gemini-cli/integration-tests
+[DEBUG] [BfsFileSearch] Scanning [10/200]: /home/niejie/work/Code/tools/gemini-cli/packages
+[DEBUG] [BfsFileSearch] Scanning [11/200]: /home/niejie/work/Code/tools/gemini-cli/scripts
+[DEBUG] [BfsFileSearch] Scanning [12/200]: /home/niejie/work/Code/tools/gemini-cli/.github/ISSUE_TEMPLATE
+[DEBUG] [BfsFileSearch] Scanning [13/200]: /home/niejie/work/Code/tools/gemini-cli/.github/actions
+[DEBUG] [BfsFileSearch] Scanning [14/200]: /home/niejie/work/Code/tools/gemini-cli/.github/workflows
+[DEBUG] [BfsFileSearch] Scanning [15/200]: /home/niejie/work/Code/tools/gemini-cli/docs/assets
+[DEBUG] [BfsFileSearch] Scanning [16/200]: /home/niejie/work/Code/tools/gemini-cli/docs/cli
+[DEBUG] [BfsFileSearch] Scanning [17/200]: /home/niejie/work/Code/tools/gemini-cli/docs/core
+[DEBUG] [BfsFileSearch] Scanning [18/200]: /home/niejie/work/Code/tools/gemini-cli/docs/tools
+[DEBUG] [BfsFileSearch] Scanning [19/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli
+[DEBUG] [BfsFileSearch] Scanning [20/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core
+[DEBUG] [BfsFileSearch] Scanning [21/200]: /home/niejie/work/Code/tools/gemini-cli/.github/actions/post-coverage-comment
+[DEBUG] [BfsFileSearch] Scanning [22/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/coverage
+[DEBUG] [BfsFileSearch] Scanning [23/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src
+[DEBUG] [BfsFileSearch] Scanning [24/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/coverage
+[DEBUG] [BfsFileSearch] Scanning [25/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src
+[DEBUG] [BfsFileSearch] Scanning [26/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/config
+[DEBUG] [BfsFileSearch] Scanning [27/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/generated
+[DEBUG] [BfsFileSearch] Scanning [28/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui
+[DEBUG] [BfsFileSearch] Scanning [29/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/utils
+[DEBUG] [BfsFileSearch] Scanning [30/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/__mocks__
+[DEBUG] [BfsFileSearch] Scanning [31/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/code_assist
+[DEBUG] [BfsFileSearch] Scanning [32/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/config
+[DEBUG] [BfsFileSearch] Scanning [33/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/core
+[DEBUG] [BfsFileSearch] Scanning [34/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/services
+[DEBUG] [BfsFileSearch] Scanning [35/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/telemetry
+[DEBUG] [BfsFileSearch] Scanning [36/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/tools
+[DEBUG] [BfsFileSearch] Scanning [37/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/utils
+[DEBUG] [BfsFileSearch] Scanning [38/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/components
+[DEBUG] [BfsFileSearch] Scanning [39/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/contexts
+[DEBUG] [BfsFileSearch] Scanning [40/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/editors
+[DEBUG] [BfsFileSearch] Scanning [41/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/hooks
+[DEBUG] [BfsFileSearch] Scanning [42/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/privacy
+[DEBUG] [BfsFileSearch] Scanning [43/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/themes
+[DEBUG] [BfsFileSearch] Scanning [44/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/utils
+[DEBUG] [BfsFileSearch] Scanning [45/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/__mocks__/fs
+[DEBUG] [BfsFileSearch] Scanning [46/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/core/__snapshots__
+[DEBUG] [BfsFileSearch] Scanning [47/200]: /home/niejie/work/Code/tools/gemini-cli/packages/core/src/telemetry/clearcut-logger
+[DEBUG] [BfsFileSearch] Scanning [48/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/components/__snapshots__
+[DEBUG] [BfsFileSearch] Scanning [49/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/components/messages
+[DEBUG] [BfsFileSearch] Scanning [50/200]: /home/niejie/work/Code/tools/gemini-cli/packages/cli/src/ui/components/shared
+[DEBUG] [MemoryDiscovery] Found downward GEMINI.md files (sorted): ["/home/niejie/work/Code/tools/gemini-cli/GEMINI.md"]
+[DEBUG] [MemoryDiscovery] Final ordered GEMINI.md paths to read: ["/home/niejie/work/Code/tools/gemini-cli/GEMINI.md"]
+[DEBUG] [MemoryDiscovery] Successfully read and processed imports: /home/niejie/work/Code/tools/gemini-cli/GEMINI.md (Length: 18634)
+[DEBUG] [MemoryDiscovery] Combined instructions length: 18704
+[DEBUG] [MemoryDiscovery] Combined instructions (snippet): --- Context from: GEMINI.md ---
+## Building and running
+
+Before submitting any changes, it is crucial to validate them by running the full preflight check. This command will build the repository, run all tests, check for type errors, and lint the code.
+
+To run the full suite of checks, execute the following command:
+
+```bash
+npm run preflight
+```
+
+This single command ensures that your changes meet all the quality gates of the project. While you can run the individual steps (`build`, `test`, `typ...
+Data collection is disabled.
+🔍 Debug: Provider = deepseek, GEMINI_PROVIDER = deepseek
+🔍 Debug: DEEPSEEK_API_KEY = SET
+🔍 Debug: Using real Deepseek adapter
+I'll invoke the `print_message` tool with the message "你好，MCP！" and return the execution result.  
+
+```json
+{
+  "tool": "print_message",
+  "input": {
+    "message": "你好，MCP！"
+  }
+}
+```  
+
+Let me know if you'd like to see the response or if there's anything else you'd like to do!
