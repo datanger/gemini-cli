@@ -701,19 +701,43 @@ export const useGeminiStream = (
         return;
       }
 
-      const responsesToSend: PartListUnion[] = geminiTools.map(
-        (toolCall) => toolCall.response.responseParts,
-      );
+      // 防止死循环：只处理包含纯文本内容的工具响应
+      const responsesToSend: PartListUnion[] = [];
+      for (const toolCall of geminiTools) {
+        const responseParts = toolCall.response.responseParts;
+        if (Array.isArray(responseParts)) {
+          // 检查是否包含纯文本内容
+          const hasTextContent = responseParts.some(part => {
+            if (typeof part === 'string') return true;
+            if (part && typeof part === 'object' && 'text' in part) return true;
+            return false;
+          });
+          if (hasTextContent) {
+            responsesToSend.push(responseParts);
+          }
+        } else if (typeof responseParts === 'string') {
+          responsesToSend.push(responseParts);
+        } else if (responseParts && typeof responseParts === 'object' && 'text' in responseParts) {
+          responsesToSend.push(responseParts);
+        }
+      }
+
       const callIdsToMarkAsSubmitted = geminiTools.map(
         (toolCall) => toolCall.request.callId,
       );
 
-      onDebugMessage(`handleCompletedTools: Submitting ${responsesToSend.length} tool responses to Gemini`);
+      onDebugMessage(`handleCompletedTools: Found ${responsesToSend.length} tool responses with text content to submit`);
 
       markToolsAsSubmitted(callIdsToMarkAsSubmitted);
-      submitQuery(mergePartListUnions(responsesToSend), {
-        isContinuation: true,
-      });
+      
+      // 只有在有文本内容时才提交给模型，避免死循环
+      if (responsesToSend.length > 0) {
+        submitQuery(mergePartListUnions(responsesToSend), {
+          isContinuation: true,
+        });
+      } else {
+        onDebugMessage('handleCompletedTools: No text content in tool responses, not submitting to avoid loop');
+      }
     },
     [
       isResponding,

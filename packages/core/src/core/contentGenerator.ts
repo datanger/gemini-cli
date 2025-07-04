@@ -12,6 +12,7 @@ import {
   EmbedContentResponse,
   EmbedContentParameters,
   GoogleGenAI,
+  FinishReason,
 } from '@google/genai';
 import { createCodeAssistContentGenerator } from '../code_assist/codeAssist.js';
 import { DEFAULT_GEMINI_MODEL } from '../config/models.js';
@@ -125,38 +126,57 @@ export async function createContentGenerator(
     return new DeepseekAdapter(apiKey);
   }
 
-  if (provider !== 'gemini') {
+  if (provider !== 'gemini' && provider !== 'deepseek') {
     // 返回一个模拟适配器
     return {
       async generateContent(request: any) {
         const responseText = `这是来自 ${provider} 的模拟响应。模型: ${request.model}`;
-        return {
-          candidates: [{
-            content: {
-              parts: [{ text: responseText }]
-            },
-            finishReason: 'STOP'
-          }],
-          usageMetadata: {
-            promptTokenCount: 1,
-            candidatesTokenCount: 1,
-            totalTokenCount: 2
+        
+        // 使用正确的构造函数创建 GenerateContentResponse
+        const generateContentResponse = new GenerateContentResponse();
+        
+        generateContentResponse.candidates = [{
+          content: {
+            parts: [{ text: responseText }]
           },
-          text: responseText
-        } as GenerateContentResponse;
+          finishReason: FinishReason.STOP
+        }];
+        
+        generateContentResponse.usageMetadata = {
+          promptTokenCount: 1,
+          candidatesTokenCount: 1,
+          totalTokenCount: 2
+        };
+        
+        // 设置其他必要字段
+        generateContentResponse.automaticFunctionCallingHistory = [];
+        generateContentResponse.createTime = new Date().toISOString();
+        generateContentResponse.responseId = `mock-${provider}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        generateContentResponse.modelVersion = request.model || 'mock-model';
+        
+        return generateContentResponse;
       },
       async generateContentStream(request: any) {
         const responseText = `这是来自 ${provider} 的流式模拟响应。模型: ${request.model}`;
         return (async function* () {
           const words = responseText.split(' ');
           for (const word of words) {
-            yield {
-              candidates: [{
-                content: {
-                  parts: [{ text: word + ' ' }]
-                }
-              }]
-            };
+            // 使用正确的构造函数创建 GenerateContentResponse
+            const generateContentResponse = new GenerateContentResponse();
+            
+            generateContentResponse.candidates = [{
+              content: {
+                parts: [{ text: word + ' ' }]
+              }
+            }];
+            
+            // 模拟适配器不支持函数调用，所以 automaticFunctionCallingHistory 为空
+            generateContentResponse.automaticFunctionCallingHistory = [];
+            generateContentResponse.createTime = new Date().toISOString();
+            generateContentResponse.responseId = `mock-stream-${provider}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            generateContentResponse.modelVersion = request.model || 'mock-model';
+            
+            yield generateContentResponse;
             await new Promise(resolve => setTimeout(resolve, 100));
           }
         })();

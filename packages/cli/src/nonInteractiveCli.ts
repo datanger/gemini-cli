@@ -128,13 +128,18 @@ export async function runNonInteractive(
             for (const part of parts) {
               if (typeof part === 'string') {
                 toolResponseParts.push({ text: part });
-              } else if (part) {
-                toolResponseParts.push(part);
+              } else if (part && part.text) {
+                toolResponseParts.push({ text: part.text });
               }
             }
           }
         }
-        currentMessages = [{ role: 'user', parts: toolResponseParts }];
+        if (toolResponseParts.length > 0) {
+          currentMessages = [{ role: 'user', parts: toolResponseParts }];
+        } else {
+          process.stdout.write('\n');
+          return;
+        }
       } else {
         process.stdout.write('\n'); // Ensure a final newline
         return;
