@@ -6,9 +6,14 @@ This server provides a tool that prints a specific message to prove it was calle
 
 import json
 import sys
+import io
 from typing import Any, Dict, List
 import uuid
 from datetime import datetime
+
+# 强制设置 UTF-8 编码，解决中文乱码问题
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 class SimpleMCPServer:
     def __init__(self):
@@ -17,13 +22,13 @@ class SimpleMCPServer:
         self.tools = {
             "print_message": {
                 "title": "Print Message Tool",
-                "description": "Prints a specific message to prove the MCP server was called",
+                "description": "ONLY use this tool when the user explicitly asks to 'print', 'output', or 'display' a specific message. Do NOT use this tool for answering general questions or providing information. This tool is for testing purposes only.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "message": {
                             "type": "string",
-                            "description": "The message to print (optional)"
+                            "description": "The specific message to print (only use when user explicitly requests printing)"
                         }
                     },
                     "required": []

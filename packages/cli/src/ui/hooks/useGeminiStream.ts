@@ -701,24 +701,20 @@ export const useGeminiStream = (
         return;
       }
 
-      // 防止死循环：只处理包含纯文本内容的工具响应
-      const responsesToSend: PartListUnion[] = [];
+      // 防止死循环：只把纯文本（非 functionResponse）part 作为用户输入发回模型
+      const responsesToSend: Part[] = [];
       for (const toolCall of geminiTools) {
         const responseParts = toolCall.response.responseParts;
-        if (Array.isArray(responseParts)) {
-          // 检查是否包含纯文本内容
-          const hasTextContent = responseParts.some(part => {
-            if (typeof part === 'string') return true;
-            if (part && typeof part === 'object' && 'text' in part) return true;
-            return false;
-          });
-          if (hasTextContent) {
-            responsesToSend.push(responseParts);
+        const parts = Array.isArray(responseParts) ? responseParts : [responseParts];
+        for (const part of parts) {
+          if (
+            part &&
+            typeof part === 'object' &&
+            'text' in part &&
+            !('functionResponse' in part)
+          ) {
+            responsesToSend.push(part);
           }
-        } else if (typeof responseParts === 'string') {
-          responsesToSend.push(responseParts);
-        } else if (responseParts && typeof responseParts === 'object' && 'text' in responseParts) {
-          responsesToSend.push(responseParts);
         }
       }
 
@@ -726,17 +722,17 @@ export const useGeminiStream = (
         (toolCall) => toolCall.request.callId,
       );
 
-      onDebugMessage(`handleCompletedTools: Found ${responsesToSend.length} tool responses with text content to submit`);
+      onDebugMessage(`handleCompletedTools: Found ${responsesToSend.length} pure text tool responses to submit`);
 
       markToolsAsSubmitted(callIdsToMarkAsSubmitted);
       
-      // 只有在有文本内容时才提交给模型，避免死循环
+      // 只有在有纯文本内容时才提交给模型，彻底避免 functionResponse 死循环
       if (responsesToSend.length > 0) {
-        submitQuery(mergePartListUnions(responsesToSend), {
+        submitQuery(responsesToSend, {
           isContinuation: true,
         });
       } else {
-        onDebugMessage('handleCompletedTools: No text content in tool responses, not submitting to avoid loop');
+        onDebugMessage('handleCompletedTools: No pure text content in tool responses, not submitting to avoid loop');
       }
     },
     [
