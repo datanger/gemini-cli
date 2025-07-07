@@ -156,7 +156,7 @@ export class DeepseekAdapter implements ContentGenerator {
       return [];
     }
 
-    return googleTools.map(tool => {
+    const result = googleTools.map(tool => {
       if (tool && typeof tool === 'object' && 'functionDeclarations' in tool && Array.isArray((tool as Record<string, unknown>).functionDeclarations)) {
         return ((tool as Record<string, unknown>).functionDeclarations as Array<Record<string, unknown>>).map((func: Record<string, unknown>) => ({
           type: "function" as const,
@@ -169,6 +169,8 @@ export class DeepseekAdapter implements ContentGenerator {
       }
       return [];
     }).flat();
+    
+    return result;
   }
 
   private normalizeParameters(parameters: unknown): Record<string, unknown> {
@@ -412,14 +414,20 @@ export class DeepseekAdapter implements ContentGenerator {
     const googleTools = config?.tools || requestAny?.tools;
     const deepseekTools = this.convertToDeepseekTools(googleTools as unknown[]);
     
-    return {
+    const requestObj: DeepseekRequest = {
       model: (requestAny?.model as string) || 'deepseek-chat',
       messages,
       stream: true,
       temperature: config?.temperature as number,
       max_tokens: config?.maxOutputTokens as number,
-      tools: deepseekTools,
     };
+    
+    // 只有当有工具时才添加 tools 字段
+    if (deepseekTools.length > 0) {
+      requestObj.tools = deepseekTools;
+    }
+    
+    return requestObj;
   }
 
   async generateContent(request: unknown): Promise<GenerateContentResponse> {
@@ -436,66 +444,53 @@ export class DeepseekAdapter implements ContentGenerator {
       stream: false,
       temperature: config?.temperature as number,
       max_tokens: config?.maxOutputTokens as number,
-      tools: deepseekTools,
     };
+    
+    // 只有当有工具时才添加 tools 字段
+    if (deepseekTools.length > 0) {
+      deepseekRequest.tools = deepseekTools;
+    }
 
     const response = await this.makeRequest('/v1/chat/completions', deepseekRequest) as DeepseekResponse;
     
-    const generateContentResponse = new GenerateContentResponse();
+    const result = this.buildResponse(response.choices[0], request as GenerateContentParameters);
     
-    generateContentResponse.candidates = [{
-      content: {
-        parts: [{ text: response.choices[0].message.content || '' }]
-      },
-      finishReason: this.convertFinishReason(response.choices[0].finish_reason)
-    }];
-    
-    generateContentResponse.usageMetadata = {
-      promptTokenCount: response.usage?.prompt_tokens || 0,
-      candidatesTokenCount: response.usage?.completion_tokens || 0,
-      totalTokenCount: response.usage?.total_tokens || 0
-    };
-    
-    generateContentResponse.automaticFunctionCallingHistory = this.buildAutomaticFunctionCallingHistory(request, response);
-    
-    generateContentResponse.createTime = new Date().toISOString();
-    generateContentResponse.responseId = `deepseek-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    generateContentResponse.modelVersion = response.model || 'deepseek-chat';
-    
-    return generateContentResponse;
+    return result;
   }
 
   async generateContentStream(request: GenerateContentParameters): Promise<AsyncGenerator<GenerateContentResponse>> {
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify(this.convertToDeepseekRequest(request)),
-    });
+    const self = this;
+    
+    return (async function* () {
+      const response = await fetch(`${self.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${self.apiKey}`,
+        },
+        body: JSON.stringify(self.convertToDeepseekRequest(request)),
+      });
 
-    if (!response.ok) {
-      throw new Error(`Deepseek API error: ${response.status} ${response.statusText}`);
-    }
+      if (!response.ok) {
+        throw new Error(`Deepseek API error: ${response.status} ${response.statusText}`);
+      }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('Failed to get response reader');
-    }
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Failed to get response reader');
+      }
 
-    const decoder = new TextDecoder();
-    let buffer = '';
-    const accumulatedToolCalls: Array<{
-      index: number;
-      id?: string;
-      function?: {
-        name?: string;
-        arguments?: string;
-      };
-    }> = [];
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const accumulatedToolCalls: Array<{
+        index: number;
+        id?: string;
+        function?: {
+          name?: string;
+          arguments?: string;
+        };
+      }> = [];
 
-    return (async function* (this: DeepseekAdapter) {
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -512,7 +507,7 @@ export class DeepseekAdapter implements ContentGenerator {
                 // 只在 [DONE] 时 yield 工具调用响应
                 if (accumulatedToolCalls.length > 0) {
                   try {
-                    const response = this.buildResponse({
+                    const response = self.buildResponse({
                       index: 0,
                       message: {
                         tool_calls: accumulatedToolCalls.map(tc => ({
@@ -571,7 +566,7 @@ export class DeepseekAdapter implements ContentGenerator {
                       role: 'model'
                     },
                     index: 0,
-                    finishReason: this.convertFinishReason(delta.finish_reason),
+                    finishReason: self.convertFinishReason(delta.finish_reason),
                     safetyRatings: []
                   }];
                   yield response;
@@ -585,7 +580,7 @@ export class DeepseekAdapter implements ContentGenerator {
       } finally {
         reader.releaseLock();
       }
-    }).bind(this)();
+    })();
   }
 
   async countTokens(request: unknown): Promise<CountTokensResponse> {

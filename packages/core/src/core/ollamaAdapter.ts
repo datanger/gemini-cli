@@ -403,12 +403,29 @@ export class OllamaAdapter implements ContentGenerator {
   }
 
   async generateContentStream(request: GenerateContentParameters): Promise<AsyncGenerator<GenerateContentResponse>> {
+    const messages = this.convertToOllamaMessages(request);
+    const requestAny = request as unknown as Record<string, unknown>;
+    const config = requestAny?.config as Record<string, unknown> | undefined;
+    const googleTools = config?.tools || requestAny?.tools;
+    const ollamaTools = this.convertToOllamaTools(googleTools as unknown[]);
+    
+    const ollamaRequest: OllamaRequest = {
+      model: (requestAny?.model as string) || 'llama2',
+      messages,
+      stream: true,
+      options: {
+        temperature: config?.temperature as number,
+        num_predict: config?.maxOutputTokens as number,
+      },
+      tools: ollamaTools,
+    };
+
     const response = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(this.convertToOllamaRequest(request)),
+      body: JSON.stringify(ollamaRequest),
     });
 
     if (!response.ok) {

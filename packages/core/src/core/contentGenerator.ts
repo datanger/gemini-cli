@@ -18,6 +18,7 @@ import { createCodeAssistContentGenerator } from '../code_assist/codeAssist.js';
 import { DEFAULT_GEMINI_MODEL } from '../config/models.js';
 import { getEffectiveModel } from './modelCheck.js';
 import { DeepseekAdapter } from './deepseekAdapter.js';
+import { OllamaAdapter } from './ollamaAdapter.js';
 
 /**
  * Interface abstracting the core functionalities for generating content and counting tokens.
@@ -114,19 +115,20 @@ export async function createContentGenerator(
   // 从环境变量获取provider，默认为gemini
   const provider = process.env.GEMINI_PROVIDER || 'gemini';
   
-  console.log(`🔍 Debug: Provider = ${provider}, GEMINI_PROVIDER = ${process.env.GEMINI_PROVIDER}`);
-
   if (provider === 'deepseek') {
     const apiKey = process.env.DEEPSEEK_API_KEY;
-    console.log(`🔍 Debug: DEEPSEEK_API_KEY = ${apiKey ? 'SET' : 'NOT SET'}`);
     if (!apiKey) {
       throw new Error('DEEPSEEK_API_KEY environment variable is required for Deepseek provider');
     }
-    console.log('🔍 Debug: Using real Deepseek adapter');
     return new DeepseekAdapter(apiKey);
   }
 
-  if (provider !== 'gemini' && provider !== 'deepseek') {
+  if (provider === 'ollama') {
+    const baseUrl = process.env.GEMINI_OLLAMA_BASE_URL || 'http://localhost:11434';
+    return new OllamaAdapter(baseUrl);
+  }
+
+  if (provider !== 'gemini' && provider !== 'deepseek' && provider !== 'ollama') {
     // 返回一个模拟适配器
     return {
       async generateContent(request: any) {

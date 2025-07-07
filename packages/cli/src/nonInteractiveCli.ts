@@ -121,6 +121,12 @@ export async function runNonInteractive(
             }
           }
 
+          // Output tool execution result to user
+          if (toolResponse.resultDisplay) {
+            process.stdout.write(`\n🔧 Tool ${fc.name} executed:\n`);
+            process.stdout.write(`${toolResponse.resultDisplay}\n`);
+          }
+
           if (toolResponse.responseParts) {
             const parts = Array.isArray(toolResponse.responseParts)
               ? toolResponse.responseParts
