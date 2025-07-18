@@ -16,6 +16,7 @@ import {
 import { createCodeAssistContentGenerator } from '../code_assist/codeAssist.js';
 import { DEFAULT_GEMINI_MODEL } from '../config/models.js';
 import { getEffectiveModel } from './modelCheck.js';
+import { LocalDeepseekAdapter } from './localDeepseekAdapter.js';
 
 /**
  * Interface abstracting the core functionalities for generating content and counting tokens.
@@ -45,6 +46,7 @@ export type ContentGeneratorConfig = {
   apiKey?: string;
   vertexai?: boolean;
   authType?: AuthType | undefined;
+  provider?: string;
 };
 
 export async function createContentGeneratorConfig(
@@ -59,10 +61,14 @@ export async function createContentGeneratorConfig(
 
   // Use runtime model from config if available, otherwise fallback to parameter or default
   const effectiveModel = config?.getModel?.() || model || DEFAULT_GEMINI_MODEL;
+  
+  // 获取 provider 从环境变量
+  const provider = process.env.GEMINI_PROVIDER || 'gemini';
 
   const contentGeneratorConfig: ContentGeneratorConfig = {
     model: effectiveModel,
     authType,
+    provider,
   };
 
   // if we are using google auth nothing else to validate for now
@@ -109,11 +115,20 @@ export async function createContentGenerator(
       'User-Agent': `GeminiCLI/${version} (${process.platform}; ${process.arch})`,
     },
   };
+
+  // 使用配置中的 provider，如果没有则使用环境变量作为后备
+  const provider = config.provider || process.env.GEMINI_PROVIDER || 'gemini';
+  
+  if (provider === 'local-deepseek') {
+    const apiKey = process.env.DEEPSEEK_API_KEY || '';
+    const baseUrl = process.env.DEEPSEEK_BASE_URL || 'http://localhost:8000';
+    return new LocalDeepseekAdapter(baseUrl, apiKey);
+  }
+
   if (config.authType === AuthType.LOGIN_WITH_GOOGLE) {
     return createCodeAssistContentGenerator(
       httpOptions,
       config.authType,
-      sessionId,
     );
   }
 
