@@ -100,6 +100,7 @@ export const useGeminiStream = (
     useStateAndRef<HistoryItemWithoutId | null>(null);
   const processedMemoryToolsRef = useRef<Set<string>>(new Set());
   const logger = useLogger();
+  const lastToolCallKeyRef = useRef<string | null>(null);
   const gitService = useMemo(() => {
     if (!config.getProjectRoot()) {
       return;
@@ -624,6 +625,20 @@ export const useGeminiStream = (
         return;
       }
 
+      // 检查是否回环：所有tool_call都和上一轮完全一致
+      const toolCallKeys = geminiTools.map(tc => tc.request.name + JSON.stringify(tc.request.args)).sort().join('|');
+      if (lastToolCallKeyRef.current === toolCallKeys) {
+        addItem(
+          {
+            type: MessageType.ERROR,
+            text: '检测到重复工具调用，已终止循环。',
+          },
+          Date.now(),
+        );
+        return;
+      }
+      lastToolCallKeyRef.current = toolCallKeys;
+
       // If all the tools were cancelled, don't submit a response to Gemini.
       const allToolsCancelled = geminiTools.every(
         (tc) => tc.status === 'cancelled',
@@ -677,6 +692,8 @@ export const useGeminiStream = (
       markToolsAsSubmitted,
       geminiClient,
       performMemoryRefresh,
+      addItem,
+      lastToolCallKeyRef,
     ],
   );
 

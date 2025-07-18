@@ -16,7 +16,8 @@ import {
 import { createCodeAssistContentGenerator } from '../code_assist/codeAssist.js';
 import { DEFAULT_GEMINI_MODEL } from '../config/models.js';
 import { getEffectiveModel } from './modelCheck.js';
-import { LocalDeepseekAdapter } from './localDeepseekAdapter.js';
+import { LocalAdapter } from './localAdapter.js';
+import { OpenAIAdapter } from './openaiAdapter.js';
 
 /**
  * Interface abstracting the core functionalities for generating content and counting tokens.
@@ -47,6 +48,7 @@ export type ContentGeneratorConfig = {
   vertexai?: boolean;
   authType?: AuthType | undefined;
   provider?: string;
+  apiVersion?: string;
 };
 
 export async function createContentGeneratorConfig(
@@ -118,11 +120,28 @@ export async function createContentGenerator(
 
   // 使用配置中的 provider，如果没有则使用环境变量作为后备
   const provider = config.provider || process.env.GEMINI_PROVIDER || 'gemini';
+
+  if (provider === 'openai') {
+    const apiKey = process.env.OPENAI_API_KEY || '';
+    const apiBase = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
+    const apiVersion = process.env.OPENAI_API_VERSION || '';
+    const apiModel = config.apiVersion || config.model || process.env.OPENAI_API_MODEL || 'gpt-3.5-turbo';
+    return new OpenAIAdapter({ apiKey, apiBase, apiVersion, apiModel });
+  }
   
-  if (provider === 'local-deepseek') {
+  if (provider === 'deepseek') {
     const apiKey = process.env.DEEPSEEK_API_KEY || '';
-    const baseUrl = process.env.DEEPSEEK_BASE_URL || 'http://localhost:8000';
-    return new LocalDeepseekAdapter(baseUrl, apiKey);
+    const apiBase = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/v1';
+    const apiVersion = config.apiVersion || process.env.DEEPSEEK_API_VERSION || '';
+    const apiModel = config.model || process.env.DEEPSEEK_API_MODEL || 'deepseek-chat';
+    return new OpenAIAdapter({ apiKey, apiBase, apiVersion, apiModel });
+  }
+
+  if (provider === 'local') {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    const apiKey = '';
+    const baseUrl = process.env.LOCAL_BASE_URL || 'https://192.168.10.173/sdw/chatbot/sysai/v1';
+    return new LocalAdapter(baseUrl, apiKey);
   }
 
   if (config.authType === AuthType.LOGIN_WITH_GOOGLE) {

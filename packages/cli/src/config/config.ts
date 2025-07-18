@@ -56,6 +56,7 @@ interface CliArgs {
   telemetryOtlpEndpoint: string | undefined;
   telemetryLogPrompts: boolean | undefined;
   provider: string | undefined;
+  apiversion: string | undefined;
 }
 
 async function parseArguments(): Promise<CliArgs> {
@@ -134,8 +135,13 @@ async function parseArguments(): Promise<CliArgs> {
     .option('provider', {
       type: 'string',
       description: 'AI model provider to use',
-      choices: ['gemini', 'deepseek', 'local-deepseek', 'local-gpt4o', 'kimi', 'ollama'],
+      choices: ['gemini', 'openai', 'deepseek', 'local', 'ollama'],
       default: 'gemini',
+    })
+    .option('apiversion', {
+      type: 'string',
+      description: 'API version for OpenAI-compatible providers',
+      default: process.env.OPENAI_API_VERSION || '',
     })
     .version(await getCliVersion()) // This will enable the --version flag based on package.json
     .alias('v', 'version')
@@ -259,6 +265,7 @@ export async function loadCliConfig(
     bugCommand: settings.bugCommand,
     model: argv.model!,
     extensionContextFilePaths,
+    apiVersion: argv.apiversion,
   });
 }
 

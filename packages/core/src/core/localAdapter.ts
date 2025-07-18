@@ -17,24 +17,24 @@ import { ContentGenerator } from './contentGenerator.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
-interface DeepseekMessage {
+interface LocalMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
 
-interface DeepseekRequest {
+interface LocalRequest {
   model: string;
-  messages: DeepseekMessage[];
+  messages: LocalMessage[];
   max_tokens?: number;
   stream?: boolean;
   temperature?: number;
   presence_penalty?: number;
   frequency_penalty?: number;
   top_p?: number;
-  tools?: DeepseekTool[];
+  tools?: LocalTool[];
 }
 
-interface DeepseekTool {
+interface LocalTool {
   type: "function";
   function: {
     name: string;
@@ -43,7 +43,7 @@ interface DeepseekTool {
   };
 }
 
-interface DeepseekResponse {
+interface LocalResponse {
   id: string;
   object: string;
   created: number;
@@ -72,7 +72,7 @@ interface DeepseekResponse {
   };
 }
 
-interface DeepseekStreamDelta {
+interface LocalStreamDelta {
   role?: string;
   content?: string;
   finish_reason?: string | null;
@@ -86,29 +86,29 @@ interface DeepseekStreamDelta {
   }>;
 }
 
-interface DeepseekStreamChoice {
+interface LocalStreamChoice {
   index: number;
-  delta: DeepseekStreamDelta;
+  delta: LocalStreamDelta;
   finish_reason: string | null;
 }
 
-interface DeepseekStreamResponse {
+interface LocalStreamResponse {
   id: string;
   object: string;
   created: number;
   model: string;
-  choices: DeepseekStreamChoice[];
+  choices: LocalStreamChoice[];
 }
 
-export class LocalDeepseekAdapter implements ContentGenerator {
+export class LocalAdapter implements ContentGenerator {
   private apiKey: string;
   private baseUrl: string;
 
   constructor(baseUrl: string, apiKey: string) {
     this.apiKey = apiKey;
     this.baseUrl = baseUrl;
-    console.log('[localDeepseekAdapter] 启动，baseUrl:', baseUrl);
-    console.log('[localDeepseekAdapter] apiKey:', apiKey);
+    console.log('[localAdapter] 启动，baseUrl:', baseUrl);
+    console.log('[localAdapter] apiKey:', apiKey);
   }
 
   private async makeRequest(endpoint: string, data: unknown): Promise<unknown> {
@@ -127,11 +127,12 @@ export class LocalDeepseekAdapter implements ContentGenerator {
       process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     }
 
-    const url = `${this.baseUrl}${endpoint}`;
-    console.log('[localDeepseekAdapter] 发起请求:', url);
-    console.log('[localDeepseekAdapter] 请求参数:', JSON.stringify(data, null, 2));
-    console.log('[localDeepseekAdapter] 请求头:', JSON.stringify(headers, null, 2));
-    console.log('[localDeepseekAdapter] 请求体大小:', JSON.stringify(data).length, 'bytes');
+    // 保证 baseUrl 末尾没有重复 /，endpoint 以 /chat/completions 开头
+    const url = this.baseUrl.replace(/\/+$/, '') + endpoint;
+    console.log('[localAdapter] 发起请求:', url);
+    // console.log('[localAdapter] 请求参数:', JSON.stringify(data, null, 2));
+    // console.log('[localAdapter] 请求头:', JSON.stringify(headers, null, 2));
+    // console.log('[localAdapter] 请求体大小:', JSON.stringify(data).length, 'bytes');
     
           // 设置超时
       const timeout = parseInt(process.env.DEEPSEEK_TIMEOUT || '30000'); // 默认30秒
@@ -148,46 +149,43 @@ export class LocalDeepseekAdapter implements ContentGenerator {
         
         clearTimeout(timeoutId);
 
-      console.log('[localDeepseekAdapter] 响应状态:', response.status, response.statusText);
-      console.log('[localDeepseekAdapter] 响应头:', Object.fromEntries(response.headers.entries()));
-
       // 获取响应文本
       const responseText = await response.text();
-      console.log('[localDeepseekAdapter] 原始响应:', responseText.length > 1000 ? responseText.substring(0, 1000) + '...(truncated)' : responseText);
+      console.log('[localAdapter] 原始响应:', responseText.length > 1000 ? responseText.substring(0, 1000) + '...(truncated)' : responseText);
 
       if (!response.ok) {
-        console.error('[localDeepseekAdapter] 请求失败:', response.status, response.statusText);
+        console.error('[localAdapter] 请求失败:', response.status, response.statusText);
         throw new Error(`Local DeepSeek API error: ${response.status} ${response.statusText} - ${responseText || 'No response body'}`);
       }
 
       // 检查响应是否为空
       if (!responseText || responseText.trim().length === 0) {
-        console.error('[localDeepseekAdapter] 服务器返回空响应');
+        console.error('[localAdapter] 服务器返回空响应');
         throw new Error('Local DeepSeek API returned empty response');
       }
 
       // 尝试解析JSON
       try {
         const json = JSON.parse(responseText);
-        console.log('[localDeepseekAdapter] 解析成功，响应类型:', typeof json);
+        console.log('[localAdapter] 解析成功，响应类型:', typeof json);
         
         // 检查响应是否包含错误信息
         if (json.error) {
           const errorMessage = json.error.message || json.error.code || 'Unknown error';
-          console.error('[localDeepseekAdapter] 服务器返回错误:', json.error);
+          console.error('[localAdapter] 服务器返回错误:', json.error);
           throw new Error(`DeepSeek server error: ${errorMessage}`);
         }
         
         // 检查是否有 choices 数组
         if (!json.choices || !Array.isArray(json.choices) || json.choices.length === 0) {
-          console.error('[localDeepseekAdapter] 响应缺少 choices 数组:', json);
+          console.error('[localAdapter] 响应缺少 choices 数组:', json);
           throw new Error('DeepSeek server returned invalid response: missing choices array');
         }
         
         return json;
       } catch (parseError) {
-        console.error('[localDeepseekAdapter] JSON解析失败:', parseError);
-        console.error('[localDeepseekAdapter] 无法解析的响应内容:', responseText);
+        console.error('[localAdapter] JSON解析失败:', parseError);
+        console.error('[localAdapter] 无法解析的响应内容:', responseText);
         throw new Error(`Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
       }
 
@@ -196,12 +194,12 @@ export class LocalDeepseekAdapter implements ContentGenerator {
         
         if (err instanceof Error) {
           if (err.name === 'AbortError') {
-            console.error('[localDeepseekAdapter] 请求超时:', timeout + 'ms');
+            console.error('[localAdapter] 请求超时:', timeout + 'ms');
             throw new Error(`Request timeout after ${timeout}ms. Please check your DeepSeek server response time or increase DEEPSEEK_TIMEOUT.`);
           }
           
           if (err.name === 'TypeError' && err.message.includes('fetch')) {
-            console.error('[localDeepseekAdapter] 网络连接失败，请检查:', {
+            console.error('[localAdapter] 网络连接失败，请检查:', {
               url,
               baseUrl: this.baseUrl,
               message: err.message
@@ -210,13 +208,13 @@ export class LocalDeepseekAdapter implements ContentGenerator {
           }
         }
         
-        console.error('[localDeepseekAdapter] 请求异常:', err);
+        console.error('[localAdapter] 请求异常:', err);
         throw err;
       }
   }
 
-  private convertToDeepseekMessages(request: unknown): DeepseekMessage[] {
-    const messages: DeepseekMessage[] = [];
+  private convertToDeepseekMessages(request: unknown): LocalMessage[] {
+    const messages: LocalMessage[] = [];
     
     if (request && typeof request === 'object' && 'contents' in request && Array.isArray((request as Record<string, unknown>).contents)) {
       for (const content of (request as Record<string, unknown>).contents as Array<Record<string, unknown>>) {
@@ -257,7 +255,7 @@ export class LocalDeepseekAdapter implements ContentGenerator {
     return messages;
   }
 
-  private convertToDeepseekTools(googleTools: unknown[]): DeepseekTool[] {
+  private convertToTools(googleTools: unknown[]): LocalTool[] {
     if (!googleTools || !Array.isArray(googleTools)) {
       return [];
     }
@@ -325,10 +323,10 @@ export class LocalDeepseekAdapter implements ContentGenerator {
     return normalizeSchema(parameters);
   }
 
-  private buildResponse(choice: DeepseekResponse['choices'][0], request: GenerateContentParameters): GenerateContentResponse {
+  private buildResponse(choice: LocalResponse['choices'][0], request: GenerateContentParameters): GenerateContentResponse {
     // 检查是否有错误响应
     if (!choice) {
-      throw new Error('Invalid response from DeepSeek server: no choices available');
+      throw new Error('Invalid response from Local server: no choices available');
     }
 
     const response = new GenerateContentResponse();
@@ -344,7 +342,7 @@ export class LocalDeepseekAdapter implements ContentGenerator {
         const logPath = path.resolve(process.cwd(), 'deepseek_tool_calls.log');
         fs.appendFileSync(logPath, JSON.stringify(logData) + '\n', 'utf8');
       } catch (e) {
-        console.error('[localDeepseekAdapter] 日志写入失败:', e);
+        console.error('[localAdapter] 日志写入失败:', e);
       }
     }
 
@@ -364,7 +362,7 @@ export class LocalDeepseekAdapter implements ContentGenerator {
       const parts: Part[] = [];
       
       if (choice.message?.tool_calls && Array.isArray(choice.message.tool_calls)) {
-        console.log('[localDeepseekAdapter] tool_calls:', JSON.stringify(choice.message.tool_calls));
+        console.log('[localAdapter] tool_calls:', JSON.stringify(choice.message.tool_calls));
         for (const toolCall of choice.message.tool_calls) {
           try {
             const args = toolCall.function?.arguments ? JSON.parse(toolCall.function.arguments) : {};
@@ -433,26 +431,34 @@ export class LocalDeepseekAdapter implements ContentGenerator {
     return response;
   }
 
-  private convertToDeepseekRequest(request: GenerateContentParameters): DeepseekRequest {
+  private convertToLocalRequest(request: GenerateContentParameters): LocalRequest {
     const messages = this.convertToDeepseekMessages(request);
     const requestAny = request as unknown as Record<string, unknown>;
     const config = requestAny?.config as Record<string, unknown> | undefined;
     const googleTools = config?.tools || requestAny?.tools;
-    const deepseekTools = this.convertToDeepseekTools(googleTools as unknown[]);
-    
+    const localTools = this.convertToTools(googleTools as unknown[]);
     // 检查是否是JSON生成请求
     const isJsonRequest = config?.responseMimeType === 'application/json' || config?.responseSchema;
-    
-    const requestObj: DeepseekRequest = {
-      model: 'deepseek-coder', // 强制使用deepseek-coder模型
+    // 构造与 llm_http_test.py 一致的请求体
+    const requestObj: any = {
+      model: (requestAny?.model as string) || 'deepseek-chat',
       messages,
-      stream: true, // 启用流式请求
-      temperature: config?.temperature as number || 0,
-      max_tokens: config?.maxOutputTokens as number || 4096,
-      presence_penalty: 0,
-      frequency_penalty: 0
+      stream: config?.stream ?? false,
+      temperature: config?.temperature ?? 1,
+      top_p: config?.top_p ?? 1,
+      max_tokens: config?.maxOutputTokens ?? 2048,
+      presence_penalty: config?.presence_penalty ?? 0,
+      frequency_penalty: config?.frequency_penalty ?? 0,
+      stop: config?.stop ?? null,
+      logprobs: config?.logprobs ?? false,
+      top_logprobs: config?.top_logprobs ?? null,
+      response_format: config?.response_format ?? { type: 'text' },
+      stream_options: config?.stream_options ?? null,
+      tool_choice: config?.tool_choice ?? 'auto',
     };
-    
+    if (localTools.length > 0) {
+      requestObj.tools = localTools;
+    }
     // 如果是JSON请求，添加格式要求到系统消息
     if (isJsonRequest && messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
@@ -460,79 +466,87 @@ export class LocalDeepseekAdapter implements ContentGenerator {
         lastMessage.content += '\n\n请严格按照JSON格式回复，不要包含任何其他文本，不要使用markdown代码块。';
       }
     }
-    
-    // 只有当有工具时才添加 tools 字段
-    if (deepseekTools.length > 0) {
-      requestObj.tools = deepseekTools;
-    }
-    
     return requestObj;
   }
 
   async generateContent(request: unknown): Promise<GenerateContentResponse> {
-    console.log('[localDeepseekAdapter] generateContent 入参:', JSON.stringify(request));
-    const messages = this.convertToDeepseekMessages(request);
-    
-    const requestAny = request as unknown as Record<string, unknown>;
-    const config = requestAny?.config as Record<string, unknown> | undefined;
-    const googleTools = config?.tools || requestAny?.tools;
-    console.log('[localDeepseekAdapter] 原始工具配置:', JSON.stringify(googleTools));
-    
-    const deepseekTools = this.convertToDeepseekTools(googleTools as unknown[]);
-    console.log('[localDeepseekAdapter] 转换后的工具配置:', JSON.stringify(deepseekTools));
-    
-    // 检查是否是JSON生成请求
-    const isJsonRequest = config?.responseMimeType === 'application/json' || config?.responseSchema;
-    
-    const deepseekRequest: DeepseekRequest = {
-      model: (requestAny?.model as string) || 'deepseek-coder',
-      messages,
-      stream: false, // 禁用流式请求
-      temperature: config?.temperature as number || 0,
-      max_tokens: config?.maxOutputTokens as number || 4096, // 恢复原始设置
-      presence_penalty: 0,
-      frequency_penalty: 0
-    };
-    
-    // 如果是JSON请求，添加格式要求到系统消息
-    if (isJsonRequest && messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage.role === 'user') {
-        lastMessage.content += '\n\n请严格按照JSON格式回复，不要包含任何其他文本，不要使用markdown代码块。';
-      }
-    }
-    
-    // 只有当有工具时才添加 tools 字段
-    if (deepseekTools.length > 0) {
-      deepseekRequest.tools = deepseekTools;
-      console.log('[localDeepseekAdapter] 添加工具到请求，工具数量:', deepseekTools.length);
-    } else {
-      console.log('[localDeepseekAdapter] 没有工具，不添加tools字段');
-    }
-
-    console.log('[localDeepseekAdapter] 最终发送请求:', JSON.stringify(deepseekRequest, null, 2));
-    const response = await this.makeRequest('/v1/chat/completions', deepseekRequest) as DeepseekResponse;
-    
+    // console.log('[localAdapter] generateContent 入参:', JSON.stringify(request));
+    const requestObj = this.convertToLocalRequest(request as GenerateContentParameters);
+    // console.log('[localAdapter] 最终发送请求:', JSON.stringify(requestObj, null, 2));
+    const response = await this.makeRequest('/chat/completions', requestObj) as LocalResponse;
     const result = this.buildResponse(response.choices[0], request as GenerateContentParameters);
-    
-    console.log('[localDeepseekAdapter] generateContent 返回:', JSON.stringify(result));
+    // console.log('[localAdapter] generateContent 返回:', JSON.stringify(result));
     return result;
   }
 
   async generateContentStream(request: GenerateContentParameters): Promise<AsyncGenerator<GenerateContentResponse>> {
-    // 禁用流式请求，直接返回非流式结果
+    // 始终降级为非流式，直接 yield 一次
+    const result = await this.generateContent(request);
+    async function* gen() { yield result; }
+    return gen();
+  }
+
+  private async *streamDeepseekResponse(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    request: GenerateContentParameters
+  ): AsyncGenerator<GenerateContentResponse> {
+    let buffer = '';
+    const seenToolCalls = new Set<string>();
+    const textDecoder = new TextDecoder();
     const self = this;
-    return (async function* () {
-      console.log('Local DeepSeek: 流式请求已禁用，使用非流式请求');
+    console.log('[localAdapter][stream] 开始读取流...');
+    while (true) {
+      let readResult;
       try {
-        const response = await self.generateContent(request);
-        yield response;
-        return;
-      } catch (error) {
-        console.error('Local DeepSeek 流式请求错误:', error);
-        throw error;
+        readResult = await reader.read();
+      } catch (err) {
+        console.error('[localAdapter][stream] 读取流时出错:', err);
+        throw err;
       }
-    })();
+      const { done, value } = readResult;
+
+      if (done) {
+        console.log('[localAdapter][stream] 流读取完毕');
+        break;
+      }
+
+      const chunkStr = textDecoder.decode(value);
+      console.log('[localAdapter][stream] 收到chunk:', chunkStr);
+      buffer += chunkStr;
+      let lines = buffer.split('\n');
+      buffer = lines.pop()!; // 最后一行可能是不完整的，留到下次
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (trimmed.startsWith('data:')) {
+          const jsonStr = trimmed.slice(5).trim();
+          if (!jsonStr || jsonStr === '[DONE]') continue;
+          let chunk;
+          try {
+            chunk = JSON.parse(jsonStr);
+          } catch (err) {
+            console.error('[localAdapter][stream] JSON解析失败:', err, '内容:', jsonStr);
+            continue;
+          }
+          const choice = chunk.choices?.[0];
+          if (choice && choice.finish_reason) {
+            console.log('[localAdapter][stream] 解析到 finish_reason:', choice.finish_reason);
+            if (choice.message?.tool_calls) {
+              choice.message.tool_calls = choice.message.tool_calls.filter((tc: any) => {
+                const key = tc.function?.name + JSON.stringify(tc.function?.arguments);
+                if (seenToolCalls.has(key)) return false;
+                seenToolCalls.add(key);
+                return true;
+              });
+            }
+            const result = self.buildResponse(choice, request as GenerateContentParameters);
+            console.log('[localAdapter][stream] yield 一个响应:', JSON.stringify(result));
+            yield result;
+          }
+        }
+      }
+
+    }
   }
 
   async countTokens(request: unknown): Promise<CountTokensResponse> {
@@ -567,7 +581,7 @@ export class LocalDeepseekAdapter implements ContentGenerator {
   }
 
   private buildAutomaticFunctionCallingHistory(request: unknown, response: unknown): Content[] {
-    const responseObj = response as DeepseekResponse;
+    const responseObj = response as LocalResponse;
     const choice = responseObj?.choices?.[0];
     if (!choice) {
       return [];
@@ -576,6 +590,7 @@ export class LocalDeepseekAdapter implements ContentGenerator {
     const toolCalls = choice.message?.tool_calls;
     if (toolCalls && Array.isArray(toolCalls) && toolCalls.length > 0) {
       const afcHistory: Content[] = [];
+      const seen = new Set<string>();
       
       if (request && typeof request === 'object' && 'contents' in request && Array.isArray((request as Record<string, unknown>).contents)) {
         const contents = (request as Record<string, unknown>).contents as Array<Record<string, unknown>>;
@@ -595,6 +610,9 @@ export class LocalDeepseekAdapter implements ContentGenerator {
       }
       
       for (const toolCall of toolCalls) {
+        const key = toolCall.function?.name + JSON.stringify(toolCall.function?.arguments);
+        if (seen.has(key)) continue;
+        seen.add(key);
         try {
           const args = toolCall.function?.arguments ? JSON.parse(toolCall.function.arguments) : {};
           afcHistory.push({

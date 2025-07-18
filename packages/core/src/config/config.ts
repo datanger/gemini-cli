@@ -130,6 +130,7 @@ export interface ConfigParameters {
   bugCommand?: BugCommandSettings;
   model: string;
   extensionContextFilePaths?: string[];
+  apiVersion?: string;
 }
 
 export class Config {
@@ -170,6 +171,7 @@ export class Config {
   private readonly extensionContextFilePaths: string[];
   private modelSwitchedDuringSession: boolean = false;
   flashFallbackHandler?: FlashFallbackHandler;
+  private readonly apiVersion: string | undefined;
 
   constructor(params: ConfigParameters) {
     this.sessionId = params.sessionId;
@@ -211,6 +213,7 @@ export class Config {
     this.bugCommand = params.bugCommand;
     this.model = params.model;
     this.extensionContextFilePaths = params.extensionContextFilePaths ?? [];
+    this.apiVersion = params.apiVersion;
 
     if (params.contextFileName) {
       setGeminiMdFilename(params.contextFileName);
@@ -451,6 +454,10 @@ export class Config {
       await this.gitService.initialize();
     }
     return this.gitService;
+  }
+
+  getApiVersion(): string | undefined {
+    return this.apiVersion;
   }
 }
 
