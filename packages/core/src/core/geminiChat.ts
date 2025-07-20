@@ -346,7 +346,7 @@ export class GeminiChat {
 
     const startTime = Date.now();
     // console.log('[DEBUG] User Input:', JSON.stringify(userContent, null, 2));
-    console.log('[DEBUG] Request Contents:', JSON.stringify(requestContents, null, 2));
+    // console.log('[DEBUG] Request Contents:', JSON.stringify(requestContents, null, 2));
     try {
       const apiCall = () =>
         this.contentGenerator.generateContentStream({
@@ -486,6 +486,8 @@ export class GeminiChat {
       this._logApiError(durationMs, error);
       throw error;
     }
+    // console.log('\n[DEBUG] inputContent:', JSON.stringify(inputContent, null, 2));
+    // console.log('\n[DEBUG] Output Content:', JSON.stringify(outputContent.slice(0, 5), null, 2));
 
     if (!errorOccurred) {
       const durationMs = Date.now() - startTime;

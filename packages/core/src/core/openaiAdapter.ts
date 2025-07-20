@@ -63,8 +63,16 @@ export class OpenAIAdapter {
           // 如果有 functionResponse，使用它
           message.content = functionResponse.functionResponse?.response?.output || '';
         } else {
-          // 否则使用文本内容
-          message.content = c.parts.map((p: any) => p.text).join('');
+          // 检查是否有 functionCall
+          const functionCall = c.parts.find((p: any) => p.functionCall);
+          if (functionCall) {
+            // 如果有 functionCall，使用它
+            message.content = JSON.stringify(functionCall.functionCall);
+          } else {
+            // 否则使用文本内容，即使为空也要保留
+            const textContent = c.parts.map((p: any) => p.text || '').join('');
+            message.content = textContent;
+          }
         }
       } else {
         message.content = '';
@@ -188,6 +196,8 @@ export class OpenAIAdapter {
     
     // 用于累积工具调用信息
     const toolCallsBuffer: any[] = [];
+    let accumulatedText = '';
+    let hasToolCalls = false;
     
     async function* gen() {
       for await (const chunk of stream) {
@@ -195,6 +205,7 @@ export class OpenAIAdapter {
         // console.log('\n[DEBUG] OpenAI tool calls:', JSON.stringify(chunk.choices[0]?.delta?.tool_calls, null, 2));
         // console.log('\n[DEBUG] OpenAI contents:', JSON.stringify(chunk.choices[0]?.delta?.content, null, 2));
         if (chunk.choices[0]?.delta?.tool_calls) {
+          hasToolCalls = true;
           for (const toolCall of chunk.choices[0].delta.tool_calls) {
             const existingIndex = toolCallsBuffer.findIndex(tc => tc.index === toolCall.index);
             
@@ -220,21 +231,18 @@ export class OpenAIAdapter {
           }
         }
         
-        yield {
-          candidates: [
-            {
-              content: {
-                parts: [{ text: chunk.choices[0]?.delta?.content || '' }],
-                role: 'model',
-              },
-              index: 0,
-              finishReason: chunk.choices[0]?.finish_reason,
-              safetyRatings: [],
-            },
-          ],
-          text: chunk.choices[0]?.delta?.content || '',
-          data: undefined,
-          functionCalls: toolCallsBuffer.length > 0 ? toolCallsBuffer.map((tc: any) => {
+        // 累积文本内容
+        if (chunk.choices[0]?.delta?.content) {
+          accumulatedText += chunk.choices[0].delta.content;
+        }
+        
+        // 检查是否完成
+        const isDone = chunk.choices[0]?.finish_reason === 'stop' || 
+                      chunk.choices[0]?.finish_reason === 'tool_calls';
+        
+        // 如果有工具调用且完成，或者没有工具调用但有文本内容，则返回结果
+        if (isDone || (!hasToolCalls && chunk.choices[0]?.delta?.content)) {
+          const functionCalls = toolCallsBuffer.length > 0 ? toolCallsBuffer.map((tc: any) => {
             let args = {};
             if (tc.function?.arguments) {
               try {
@@ -249,10 +257,55 @@ export class OpenAIAdapter {
               args,
               id: tc.id
             };
-          }) : undefined,
-          executableCode: undefined,
-          codeExecutionResult: undefined,
-        };
+          }) : undefined;
+
+          // 构建 parts 数组
+          const parts = [];
+          if (accumulatedText) {
+            parts.push({ text: accumulatedText });
+          }
+          if (functionCalls && functionCalls.length > 0) {
+            // 将工具调用转换为 functionCall 格式
+            parts.push({ 
+              functionCall: {
+                name: functionCalls[0].name,
+                args: functionCalls[0].args
+              }
+            });
+          }
+          
+          // 只在完成时返回结果，或者文本长度超过20时返回
+          if (isDone || accumulatedText.length >= 10) {
+            yield {
+              candidates: [
+                {
+                  content: {
+                    parts: parts.length > 0 ? parts : [{ text: '' }],
+                    role: 'model',
+                  },
+                  index: 0,
+                  finishReason: chunk.choices[0]?.finish_reason,
+                  safetyRatings: [],
+                },
+              ],
+              text: accumulatedText || '',
+              functionCalls: functionCalls ? functionCalls : undefined,
+              data: undefined,
+              executableCode: undefined,
+              codeExecutionResult: undefined,
+            };
+            
+            // 重置状态
+            if (isDone) {
+              accumulatedText = '';
+              toolCallsBuffer.length = 0;
+              hasToolCalls = false;
+            } else {
+              // 如果不是完成状态，重置累积的文本
+              accumulatedText = '';
+            }
+          }
+        }
       }
     }
     return gen();

@@ -65,7 +65,7 @@ export async function createContentGeneratorConfig(
   // Use runtime model from config if available, otherwise fallback to parameter or default
   const effectiveModel = config?.getModel?.() || model || DEFAULT_GEMINI_MODEL;
   
-  // è·å? provider ä»ç¯å¢?å˜é‡
+  // ?æ providerCàÒ?? gemini?æ providerCàÒ?? gemini
   const provider = process.env.GEMINI_PROVIDER || 'gemini';
 
   const contentGeneratorConfig: ContentGeneratorConfig = {
