@@ -345,7 +345,8 @@ export class GeminiChat {
     this._logApiRequest(requestContents, this.config.getModel());
 
     const startTime = Date.now();
-
+    // console.log('[DEBUG] User Input:', JSON.stringify(userContent, null, 2));
+    console.log('[DEBUG] Request Contents:', JSON.stringify(requestContents, null, 2));
     try {
       const apiCall = () =>
         this.contentGenerator.generateContentStream({

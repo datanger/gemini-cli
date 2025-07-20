@@ -18,6 +18,7 @@ import { DEFAULT_GEMINI_MODEL } from '../config/models.js';
 import { getEffectiveModel } from './modelCheck.js';
 import { LocalAdapter } from './localAdapter.js';
 import { OpenAIAdapter } from './openaiAdapter.js';
+import { OllamaAdapter } from './ollamaAdapter.js';
 
 /**
  * Interface abstracting the core functionalities for generating content and counting tokens.
@@ -64,7 +65,7 @@ export async function createContentGeneratorConfig(
   // Use runtime model from config if available, otherwise fallback to parameter or default
   const effectiveModel = config?.getModel?.() || model || DEFAULT_GEMINI_MODEL;
   
-  // 获取 provider 从环境变量
+  // 获�? provider 从环�?变量
   const provider = process.env.GEMINI_PROVIDER || 'gemini';
 
   const contentGeneratorConfig: ContentGeneratorConfig = {
@@ -109,7 +110,7 @@ export async function createContentGeneratorConfig(
 
 export async function createContentGenerator(
   config: ContentGeneratorConfig,
-  sessionId?: string,
+  _sessionId?: string,
 ): Promise<ContentGenerator> {
   const version = process.env.CLI_VERSION || process.version;
   const httpOptions = {
@@ -118,7 +119,7 @@ export async function createContentGenerator(
     },
   };
 
-  // 使用配置中的 provider，如果没有则使用环境变量作为后备
+  // ��?��?��?��provider�C��??gemini
   const provider = config.provider || process.env.GEMINI_PROVIDER || 'gemini';
 
   if (provider === 'openai') {
@@ -135,6 +136,11 @@ export async function createContentGenerator(
     const apiVersion = config.apiVersion || process.env.DEEPSEEK_API_VERSION || '';
     const apiModel = config.model || process.env.DEEPSEEK_API_MODEL || 'deepseek-chat';
     return new OpenAIAdapter({ apiKey, apiBase, apiVersion, apiModel });
+  }
+
+  if (provider === 'ollama') {
+    const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    return new OllamaAdapter(baseUrl);
   }
 
   if (provider === 'local') {

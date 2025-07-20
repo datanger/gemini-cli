@@ -57,9 +57,9 @@ export class ReadFileTool extends BaseTool<ReadFileToolParams, ToolResult> {
         properties: {
           absolute_path: {
             description:
-              "The absolute path to the file to read (e.g., '/home/user/project/file.txt'). Relative paths are not supported. You must provide an absolute path.",
+              "The absolute path to the file to read (e.g., '/home/user/project/file.txt' or 'D:/Work/project/file.txt'). Relative paths are not supported. You must provide an absolute path.",
             type: 'string',
-            pattern: '^/',
+            pattern: '^(/|[A-Za-z]:/)',
           },
           offset: {
             description:

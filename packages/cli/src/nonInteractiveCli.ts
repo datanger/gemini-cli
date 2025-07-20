@@ -65,6 +65,7 @@ export async function runNonInteractive(
   try {
     while (true) {
       const functionCalls: FunctionCall[] = [];
+      let hasToolCalls = false;
 
       const responseStream = await chat.sendMessageStream({
         message: currentMessages[0]?.parts || [], // Ensure parts are always provided
@@ -86,11 +87,18 @@ export async function runNonInteractive(
           process.stdout.write(textPart);
         }
         if (resp.functionCalls) {
+          // console.log('[DEBUG] Tool calls:', JSON.stringify(resp.functionCalls, null, 2));
+          hasToolCalls = true;
+          // 更新工具调用，使用最新的完整参数
+          functionCalls.length = 0; // 清空之前的调用
           functionCalls.push(...resp.functionCalls);
         }
       }
 
-      if (functionCalls.length > 0) {
+      // console.log('\n[DEBUG] Function calls:', JSON.stringify(functionCalls, null, 2));
+
+      // 流式传输完成后，执行工具调用
+      if (hasToolCalls && functionCalls.length > 0) {
         const toolResponseParts: Part[] = [];
 
         for (const fc of functionCalls) {
@@ -108,6 +116,12 @@ export async function runNonInteractive(
             toolRegistry,
             abortController.signal,
           );
+
+          // 添加详细的调试信息
+          // console.log(`\n[DEBUG] Tool call details:`);
+          // console.log(`  Name: ${fc.name}`);
+          // console.log(`  Args: ${JSON.stringify(fc.args, null, 2)}`);
+          // console.log(`  Call ID: ${fc.id}`);
 
           if (toolResponse.error) {
             const isToolNotFound = toolResponse.error.message.includes(
@@ -133,7 +147,14 @@ export async function runNonInteractive(
               }
             }
           }
+          
+          // 输出工具执行结果给用户
+          if (toolResponse.resultDisplay) {
+            console.log(`\n[Tool Result] ${fc.name}:`);
+            console.log(toolResponse.resultDisplay);
+          }
         }
+        // console.log('[DEBUG] Tool response parts:', JSON.stringify(toolResponseParts, null, 2));
         currentMessages = [{ role: 'user', parts: toolResponseParts }];
       } else {
         process.stdout.write('\n'); // Ensure a final newline

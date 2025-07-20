@@ -171,6 +171,7 @@ export class GeminiClient {
     const toolRegistry = await this.config.getToolRegistry();
     const toolDeclarations = toolRegistry.getFunctionDeclarations();
     const tools: Tool[] = [{ functionDeclarations: toolDeclarations }];
+    
     const history: Content[] = [
       {
         role: 'user',
@@ -185,6 +186,7 @@ export class GeminiClient {
     try {
       const userMemory = this.config.getUserMemory();
       const systemInstruction = getCoreSystemPrompt(userMemory);
+      
       const generateContentConfigWithThinking = isThinkingSupported(
         this.config.getModel(),
       )
@@ -299,14 +301,19 @@ export class GeminiClient {
         );
         throw error;
       }
+      
+      // 清理可能的markdown格式
+      const cleanedText = this.cleanJsonResponse(text);
+      
       try {
-        return JSON.parse(text);
+        return JSON.parse(cleanedText);
       } catch (parseError) {
         await reportError(
           parseError,
           'Failed to parse JSON response from generateJson.',
           {
             responseTextFailedToParse: text,
+            cleanedTextFailedToParse: cleanedText,
             originalRequestContents: contents,
           },
           'generateJson-parse',
@@ -465,7 +472,7 @@ export class GeminiClient {
         text: 'First, reason in your scratchpad. Then, generate the <state_snapshot>.',
       },
       config: {
-        systemInstruction: { text: getCompressionPrompt() },
+        systemInstruction: getCompressionPrompt(),
       },
     });
     this.chat = await this.startChat([
@@ -529,5 +536,14 @@ export class GeminiClient {
     }
 
     return null;
+  }
+
+  private cleanJsonResponse(text: string): string {
+    // 移除可能的markdown格式，例如 ```json 和 ```
+    const cleanedText = text
+      .replace(/```json\n?/g, '')
+      .replace(/```/g, '')
+      .replace(/```\n?/g, '');
+    return cleanedText;
   }
 }
