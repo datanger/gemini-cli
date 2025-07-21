@@ -103,12 +103,131 @@ interface LocalStreamResponse {
 export class LocalAdapter implements ContentGenerator {
   private apiKey: string;
   private baseUrl: string;
+  private detectedModel: string = 'unknown';
 
   constructor(baseUrl: string, apiKey: string) {
     this.apiKey = apiKey;
     this.baseUrl = baseUrl;
     console.log('[localAdapter] 启动，baseUrl:', baseUrl);
     console.log('[localAdapter] apiKey:', apiKey);
+  }
+
+  /**
+   * 根据模型名称检测模型类型
+   */
+  private detectModelType(modelName: string): string {
+    const lowerModel = modelName.toLowerCase();
+    
+    // DeepSeek 模型检测
+    if (lowerModel.includes('deepseek') || lowerModel.includes('coder')) {
+      return 'deepseek-coder';
+    }
+    
+    // OpenAI 兼容模型检测
+    if (lowerModel.includes('gpt') || lowerModel.includes('openai')) {
+      return 'gpt';
+    }
+    
+    // Claude 模型检测
+    if (lowerModel.includes('claude')) {
+      return 'claude';
+    }
+    
+    // Llama 模型检测
+    if (lowerModel.includes('llama') || lowerModel.includes('llm')) {
+      return 'llama';
+    }
+    
+    // Qwen 模型检测
+    if (lowerModel.includes('qwen')) {
+      return 'qwen';
+    }
+    
+    // ChatGLM 模型检测
+    if (lowerModel.includes('chatglm') || lowerModel.includes('glm')) {
+      return 'chatglm';
+    }
+    
+    // 通用模型检测
+    if (lowerModel.includes('chat') || lowerModel.includes('assistant')) {
+      return 'chat';
+    }
+    
+    // 默认返回模型名称
+    return modelName;
+  }
+
+  /**
+   * 根据模型类型调整请求参数
+   */
+  private adjustRequestForModel(requestObj: any, modelType: string): void {
+    switch (modelType) {
+      case 'deepseek-coder':
+        // DeepSeek 特定配置
+        requestObj.temperature = requestObj.temperature ?? 0.7;
+        requestObj.top_p = requestObj.top_p ?? 0.95;
+        break;
+        
+      case 'gpt':
+        // OpenAI 兼容配置
+        requestObj.temperature = requestObj.temperature ?? 0.7;
+        requestObj.top_p = requestObj.top_p ?? 1;
+        break;
+        
+      case 'claude':
+        // Claude 配置
+        requestObj.temperature = requestObj.temperature ?? 0.7;
+        requestObj.top_p = requestObj.top_p ?? 0.9;
+        break;
+        
+      case 'llama':
+        // Llama 配置
+        requestObj.temperature = requestObj.temperature ?? 0.8;
+        requestObj.top_p = requestObj.top_p ?? 0.9;
+        break;
+        
+      case 'qwen':
+        // Qwen 配置
+        requestObj.temperature = requestObj.temperature ?? 0.7;
+        requestObj.top_p = requestObj.top_p ?? 0.9;
+        break;
+        
+      case 'chatglm':
+        // ChatGLM 配置
+        requestObj.temperature = requestObj.temperature ?? 0.7;
+        requestObj.top_p = requestObj.top_p ?? 0.9;
+        break;
+        
+      default:
+        // 通用配置
+        requestObj.temperature = requestObj.temperature ?? 0.7;
+        requestObj.top_p = requestObj.top_p ?? 0.9;
+        break;
+    }
+  }
+
+  /**
+   * 根据模型类型调整响应处理
+   */
+  private adjustResponseForModel(response: any, modelType: string): void {
+    // 根据模型类型调整响应处理逻辑
+    switch (modelType) {
+      case 'deepseek-coder':
+        // DeepSeek 特定处理
+        break;
+        
+      case 'gpt':
+        // OpenAI 兼容处理
+        break;
+        
+      case 'claude':
+        // Claude 特定处理
+        break;
+        
+      default:
+        // 通用处理
+        break;
+    }
   }
 
   private async makeRequest(endpoint: string, data: unknown): Promise<unknown> {
@@ -155,13 +274,13 @@ export class LocalAdapter implements ContentGenerator {
 
       if (!response.ok) {
         console.error('[localAdapter] 请求失败:', response.status, response.statusText);
-        throw new Error(`Local DeepSeek API error: ${response.status} ${response.statusText} - ${responseText || 'No response body'}`);
+        throw new Error(`Local ${this.detectedModel} API error: ${response.status} ${response.statusText} - ${responseText || 'No response body'}`);
       }
 
       // 检查响应是否为空
       if (!responseText || responseText.trim().length === 0) {
         console.error('[localAdapter] 服务器返回空响应');
-        throw new Error('Local DeepSeek API returned empty response');
+        throw new Error(`Local ${this.detectedModel} API returned empty response`);
       }
 
       // 尝试解析JSON
@@ -173,13 +292,13 @@ export class LocalAdapter implements ContentGenerator {
         if (json.error) {
           const errorMessage = json.error.message || json.error.code || 'Unknown error';
           console.error('[localAdapter] 服务器返回错误:', json.error);
-          throw new Error(`DeepSeek server error: ${errorMessage}`);
+          throw new Error(`${this.detectedModel} server error: ${errorMessage}`);
         }
         
         // 检查是否有 choices 数组
         if (!json.choices || !Array.isArray(json.choices) || json.choices.length === 0) {
           console.error('[localAdapter] 响应缺少 choices 数组:', json);
-          throw new Error('DeepSeek server returned invalid response: missing choices array');
+          throw new Error(`${this.detectedModel} server returned invalid response: missing choices array`);
         }
         
         return json;
@@ -195,7 +314,7 @@ export class LocalAdapter implements ContentGenerator {
         if (err instanceof Error) {
           if (err.name === 'AbortError') {
             console.error('[localAdapter] 请求超时:', timeout + 'ms');
-            throw new Error(`Request timeout after ${timeout}ms. Please check your DeepSeek server response time or increase DEEPSEEK_TIMEOUT.`);
+            throw new Error(`Request timeout after ${timeout}ms. Please check your ${this.detectedModel} server response time or increase DEEPSEEK_TIMEOUT.`);
           }
           
           if (err.name === 'TypeError' && err.message.includes('fetch')) {
@@ -204,7 +323,7 @@ export class LocalAdapter implements ContentGenerator {
               baseUrl: this.baseUrl,
               message: err.message
             });
-            throw new Error(`Cannot connect to DeepSeek server at ${this.baseUrl}. Please check if the server is running and the URL is correct.`);
+            throw new Error(`Cannot connect to ${this.detectedModel} server at ${this.baseUrl}. Please check if the server is running and the URL is correct.`);
           }
         }
         
@@ -329,8 +448,6 @@ export class LocalAdapter implements ContentGenerator {
       throw new Error('Invalid response from Local server: no choices available');
     }
 
-    const response = new GenerateContentResponse();
-    
     // 精简日志：只记录工具调用和错误
     if (choice.message?.tool_calls || choice.message?.function_call) {
       const logData = {
@@ -339,68 +456,79 @@ export class LocalAdapter implements ContentGenerator {
         function_call: choice.message.function_call
       };
       try {
-        const logPath = path.resolve(process.cwd(), 'deepseek_tool_calls.log');
+        const logPath = path.resolve(process.cwd(), `${this.detectedModel}_tool_calls.log`);
         fs.appendFileSync(logPath, JSON.stringify(logData) + '\n', 'utf8');
       } catch (e) {
         console.error('[localAdapter] 日志写入失败:', e);
       }
     }
 
-    // 使用与标准DeepseekAdapter相同的逻辑
+    // 构建 parts 数组
+    const parts: any[] = [];
+    let text = '';
+    let functionCalls: any[] | undefined = undefined;
+
+    // 文本内容
     if (choice.message?.content) {
-      response.candidates = [{
-        content: {
-          parts: [{ text: choice.message.content }],
-          role: 'model'
-        },
-        index: 0,
-        finishReason: this.convertFinishReason(choice.finish_reason),
-        safetyRatings: []
-      }];
-    } else if (choice.message?.tool_calls || choice.message?.function_call) {
-      // Handle tool/function calls
-      const parts: Part[] = [];
-      
-      if (choice.message?.tool_calls && Array.isArray(choice.message.tool_calls)) {
-        console.log('[localAdapter] tool_calls:', JSON.stringify(choice.message.tool_calls));
-        for (const toolCall of choice.message.tool_calls) {
+      text = choice.message.content;
+      parts.push({ text });
+    }
+
+    // 工具调用
+    if (choice.message?.tool_calls && Array.isArray(choice.message.tool_calls)) {
+      console.log('[localAdapter] tool_calls:', JSON.stringify(choice.message.tool_calls));
+      functionCalls = choice.message.tool_calls.map((toolCall: any) => {
+        let args = {};
+        if (toolCall.function?.arguments) {
           try {
-            const args = toolCall.function?.arguments ? JSON.parse(toolCall.function.arguments) : {};
-            parts.push({
-              functionCall: {
-                name: toolCall.function?.name || 'unknown_function',
-                args
-              }
-            });
+            args = JSON.parse(toolCall.function.arguments);
           } catch {
-            parts.push({
-              functionCall: {
-                name: toolCall.function?.name || 'unknown_function',
-                args: { raw_arguments: toolCall.function?.arguments }
-              }
-            });
+            args = {};
           }
         }
-      } else if (choice.message?.function_call) {
+        // parts 追加
+        parts.push({
+          functionCall: {
+            name: toolCall.function?.name || 'unknown_function',
+            args
+          }
+        });
+        return {
+          name: toolCall.function?.name || 'unknown_function',
+          args,
+          id: toolCall.id
+        };
+      });
+    } else if (choice.message?.function_call) {
+      // 兼容 function_call
+      let args = {};
+      if (choice.message.function_call.arguments) {
         try {
-          const args = choice.message.function_call.arguments ? JSON.parse(choice.message.function_call.arguments) : {};
-          parts.push({
-            functionCall: {
-              name: choice.message.function_call.name || 'unknown_function',
-              args
-            }
-          });
+          args = JSON.parse(choice.message.function_call.arguments);
         } catch {
-          parts.push({
-            functionCall: {
-              name: choice.message.function_call.name || 'unknown_function',
-              args: { raw_arguments: choice.message.function_call.arguments }
-            }
-          });
+          args = {};
         }
       }
-      
-      response.candidates = [{
+      parts.push({
+        functionCall: {
+          name: choice.message.function_call.name || 'unknown_function',
+          args
+        }
+      });
+      functionCalls = [{
+        name: choice.message.function_call.name || 'unknown_function',
+        args,
+        id: undefined
+      }];
+    }
+
+    // 如果没有内容，parts 至少有空文本
+    if (parts.length === 0) {
+      parts.push({ text: '' });
+    }
+
+    const response = {
+      candidates: [{
         content: {
           parts,
           role: 'model'
@@ -408,27 +536,19 @@ export class LocalAdapter implements ContentGenerator {
         index: 0,
         finishReason: this.convertFinishReason(choice.finish_reason),
         safetyRatings: []
-      }];
-    } else {
-      // Empty response
-      response.candidates = [{
-        content: {
-          parts: [],
-          role: 'model'
-        },
-        index: 0,
-        finishReason: this.convertFinishReason(choice.finish_reason),
-        safetyRatings: []
-      }];
-    }
+      }],
+      text,
+      functionCalls: functionCalls,
+      data: undefined,
+      executableCode: undefined,
+      codeExecutionResult: undefined,
+      automaticFunctionCallingHistory: this.buildAutomaticFunctionCallingHistory(request, { choices: [choice] }),
+      createTime: new Date().toISOString(),
+      responseId: `${this.detectedModel}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      modelVersion: this.detectedModel
+    };
 
-    // 设置automaticFunctionCallingHistory (修复：添加实际逻辑)
-    response.automaticFunctionCallingHistory = this.buildAutomaticFunctionCallingHistory(request, { choices: [choice] });
-    response.createTime = new Date().toISOString();
-    response.responseId = `deepseek-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    response.modelVersion = 'deepseek-coder';
-    
-    return response;
+    return response as GenerateContentResponse;
   }
 
   private convertToLocalRequest(request: GenerateContentParameters): LocalRequest {
@@ -437,11 +557,18 @@ export class LocalAdapter implements ContentGenerator {
     const config = requestAny?.config as Record<string, unknown> | undefined;
     const googleTools = config?.tools || requestAny?.tools;
     const localTools = this.convertToTools(googleTools as unknown[]);
+    
+    // 获取模型名称并检测模型类型
+    const modelName = (requestAny?.model as string) || 'local-chat';
+    const modelType = this.detectModelType(modelName);
+    this.detectedModel = modelType; // 保存检测到的模型类型
+    
     // 检查是否是JSON生成请求
     const isJsonRequest = config?.responseMimeType === 'application/json' || config?.responseSchema;
-    // 构造与 llm_http_test.py 一致的请求体
+    
+    // 构造请求体
     const requestObj: any = {
-      model: (requestAny?.model as string) || 'deepseek-chat',
+      model: modelName,
       messages,
       stream: config?.stream ?? false,
       temperature: config?.temperature ?? 1,
@@ -456,9 +583,14 @@ export class LocalAdapter implements ContentGenerator {
       stream_options: config?.stream_options ?? null,
       tool_choice: config?.tool_choice ?? 'auto',
     };
+    
+    // 根据模型类型调整请求参数
+    this.adjustRequestForModel(requestObj, modelType);
+    
     if (localTools.length > 0) {
       requestObj.tools = localTools;
     }
+    
     // 如果是JSON请求，添加格式要求到系统消息
     if (isJsonRequest && messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
@@ -466,16 +598,14 @@ export class LocalAdapter implements ContentGenerator {
         lastMessage.content += '\n\n请严格按照JSON格式回复，不要包含任何其他文本，不要使用markdown代码块。';
       }
     }
+    
     return requestObj;
   }
 
   async generateContent(request: unknown): Promise<GenerateContentResponse> {
-    // console.log('[localAdapter] generateContent 入参:', JSON.stringify(request));
     const requestObj = this.convertToLocalRequest(request as GenerateContentParameters);
-    // console.log('[localAdapter] 最终发送请求:', JSON.stringify(requestObj, null, 2));
     const response = await this.makeRequest('/chat/completions', requestObj) as LocalResponse;
     const result = this.buildResponse(response.choices[0], request as GenerateContentParameters);
-    // console.log('[localAdapter] generateContent 返回:', JSON.stringify(result));
     return result;
   }
 
@@ -561,7 +691,7 @@ export class LocalAdapter implements ContentGenerator {
   }
 
   async embedContent(_request: unknown): Promise<EmbedContentResponse> {
-    throw new Error('Embedding not supported by Local DeepSeek adapter');
+    throw new Error(`Embedding not supported by Local ${this.detectedModel} adapter`);
   }
 
   private convertFinishReason(finishReason: string | null | undefined): FinishReason {

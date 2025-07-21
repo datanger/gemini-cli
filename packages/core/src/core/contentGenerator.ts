@@ -65,7 +65,7 @@ export async function createContentGeneratorConfig(
   // Use runtime model from config if available, otherwise fallback to parameter or default
   const effectiveModel = config?.getModel?.() || model || DEFAULT_GEMINI_MODEL;
   
-  // ?æ providerCàÒ?? gemini?æ providerCàÒ?? gemini
+  // è·å– provider ä»ç¯å¢ƒå˜é‡
   const provider = process.env.GEMINI_PROVIDER || 'gemini';
 
   const contentGeneratorConfig: ContentGeneratorConfig = {
@@ -119,7 +119,7 @@ export async function createContentGenerator(
     },
   };
 
-  // ˜¸?‹«?—Ê?æproviderCàÒ??gemini
+  // 
   const provider = config.provider || process.env.GEMINI_PROVIDER || 'gemini';
 
   if (provider === 'openai') {
