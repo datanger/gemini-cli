@@ -338,7 +338,7 @@ export class LocalAdapter implements ContentGenerator {
       messages.push({ role: 'system', content: 'You are a helpful assistant.' });
     }
 
-    console.log('[localAdapter] messages:', messages);
+    // console.log('[localAdapter] messages:', messages);
 
     return messages;
   }
