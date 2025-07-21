@@ -14,8 +14,6 @@ import {
   Content,
 } from '@google/genai';
 import { ContentGenerator } from './contentGenerator.js';
-import * as fs from 'fs';
-import * as path from 'path';
 
 interface LocalMessage {
   role: 'system' | 'user' | 'assistant';
@@ -108,8 +106,6 @@ export class LocalAdapter implements ContentGenerator {
   constructor(baseUrl: string, apiKey: string) {
     this.apiKey = apiKey;
     this.baseUrl = baseUrl;
-    console.log('[localAdapter] 启动，baseUrl:', baseUrl);
-    console.log('[localAdapter] apiKey:', apiKey);
   }
 
   /**
@@ -248,10 +244,6 @@ export class LocalAdapter implements ContentGenerator {
 
     // 保证 baseUrl 末尾没有重复 /，endpoint 以 /chat/completions 开头
     const url = this.baseUrl.replace(/\/+$/, '') + endpoint;
-    console.log('[localAdapter] 发起请求:', url);
-    // console.log('[localAdapter] 请求参数:', JSON.stringify(data, null, 2));
-    // console.log('[localAdapter] 请求头:', JSON.stringify(headers, null, 2));
-    // console.log('[localAdapter] 请求体大小:', JSON.stringify(data).length, 'bytes');
     
           // 设置超时
       const timeout = parseInt(process.env.DEEPSEEK_TIMEOUT || '30000'); // 默认30秒
@@ -270,41 +262,33 @@ export class LocalAdapter implements ContentGenerator {
 
       // 获取响应文本
       const responseText = await response.text();
-      console.log('[localAdapter] 原始响应:', responseText.length > 1000 ? responseText.substring(0, 1000) + '...(truncated)' : responseText);
 
       if (!response.ok) {
-        console.error('[localAdapter] 请求失败:', response.status, response.statusText);
         throw new Error(`Local ${this.detectedModel} API error: ${response.status} ${response.statusText} - ${responseText || 'No response body'}`);
       }
 
       // 检查响应是否为空
       if (!responseText || responseText.trim().length === 0) {
-        console.error('[localAdapter] 服务器返回空响应');
         throw new Error(`Local ${this.detectedModel} API returned empty response`);
       }
 
       // 尝试解析JSON
       try {
         const json = JSON.parse(responseText);
-        console.log('[localAdapter] 解析成功，响应类型:', typeof json);
         
         // 检查响应是否包含错误信息
         if (json.error) {
           const errorMessage = json.error.message || json.error.code || 'Unknown error';
-          console.error('[localAdapter] 服务器返回错误:', json.error);
           throw new Error(`${this.detectedModel} server error: ${errorMessage}`);
         }
         
         // 检查是否有 choices 数组
         if (!json.choices || !Array.isArray(json.choices) || json.choices.length === 0) {
-          console.error('[localAdapter] 响应缺少 choices 数组:', json);
           throw new Error(`${this.detectedModel} server returned invalid response: missing choices array`);
         }
         
         return json;
       } catch (parseError) {
-        console.error('[localAdapter] JSON解析失败:', parseError);
-        console.error('[localAdapter] 无法解析的响应内容:', responseText);
         throw new Error(`Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
       }
 
@@ -313,21 +297,14 @@ export class LocalAdapter implements ContentGenerator {
         
         if (err instanceof Error) {
           if (err.name === 'AbortError') {
-            console.error('[localAdapter] 请求超时:', timeout + 'ms');
             throw new Error(`Request timeout after ${timeout}ms. Please check your ${this.detectedModel} server response time or increase DEEPSEEK_TIMEOUT.`);
           }
           
           if (err.name === 'TypeError' && err.message.includes('fetch')) {
-            console.error('[localAdapter] 网络连接失败，请检查:', {
-              url,
-              baseUrl: this.baseUrl,
-              message: err.message
-            });
             throw new Error(`Cannot connect to ${this.detectedModel} server at ${this.baseUrl}. Please check if the server is running and the URL is correct.`);
           }
         }
         
-        console.error('[localAdapter] 请求异常:', err);
         throw err;
       }
   }
@@ -337,31 +314,21 @@ export class LocalAdapter implements ContentGenerator {
     
     if (request && typeof request === 'object' && 'contents' in request && Array.isArray((request as Record<string, unknown>).contents)) {
       for (const content of (request as Record<string, unknown>).contents as Array<Record<string, unknown>>) {
-        if (content.role === 'user' && content.parts) {
-          const text = (content.parts as Array<Record<string, unknown>>)
-            .filter((part: unknown) => part && typeof part === 'object' && 'text' in part)
-            .map((part: Record<string, unknown>) => part.text as string)
-            .join('');
-          if (text) {
-            // 限制用户消息长度，避免超时
-            const maxLength = 3000; // 限制单条消息最大长度
-            const truncatedText = text.length > maxLength ? 
-              text.substring(0, maxLength) + `\n\n...[消息已截断，原长度${text.length}字符，已截断为${maxLength}字符以提高响应速度]` : 
-              text;
-            messages.push({ role: 'user', content: truncatedText });
+        if ((content.role === 'user' || content.role === 'model') && content.parts) {
+          const segments: string[] = [];
+          for (const part of content.parts as Array<Record<string, unknown>>) {
+            if ('text' in part) {
+              segments.push(part.text as string);
+            } else if ('functionCall' in part) {
+              segments.push('[FunctionCall] ' + JSON.stringify(part.functionCall));
+            } else if ('functionResponse' in part) {
+              segments.push('[FunctionResponse] ' + JSON.stringify(part.functionResponse));
+            }
           }
-        } else if (content.role === 'model' && content.parts) {
-          const text = (content.parts as Array<Record<string, unknown>>)
-            .filter((part: unknown) => part && typeof part === 'object' && 'text' in part)
-            .map((part: Record<string, unknown>) => part.text as string)
-            .join('');
+          const text = segments.join('\n');
           if (text) {
-            // 限制助手消息长度，避免超时
-            const maxLength = 2000; // 助手消息限制稍小一些
-            const truncatedText = text.length > maxLength ? 
-              text.substring(0, maxLength) + `\n\n...[响应已截断，原长度${text.length}字符]` : 
-              text;
-            messages.push({ role: 'assistant', content: truncatedText });
+            const role = content.role === 'model' ? 'assistant' : content.role;
+            messages.push({ role, content: text });
           }
         }
       }
@@ -370,6 +337,8 @@ export class LocalAdapter implements ContentGenerator {
     if (messages.length === 0) {
       messages.push({ role: 'system', content: 'You are a helpful assistant.' });
     }
+
+    console.log('[localAdapter] messages:', messages);
 
     return messages;
   }
@@ -448,21 +417,6 @@ export class LocalAdapter implements ContentGenerator {
       throw new Error('Invalid response from Local server: no choices available');
     }
 
-    // 精简日志：只记录工具调用和错误
-    if (choice.message?.tool_calls || choice.message?.function_call) {
-      const logData = {
-        timestamp: new Date().toISOString(),
-        tool_calls: choice.message.tool_calls,
-        function_call: choice.message.function_call
-      };
-      try {
-        const logPath = path.resolve(process.cwd(), `${this.detectedModel}_tool_calls.log`);
-        fs.appendFileSync(logPath, JSON.stringify(logData) + '\n', 'utf8');
-      } catch (e) {
-        console.error('[localAdapter] 日志写入失败:', e);
-      }
-    }
-
     // 构建 parts 数组
     const parts: any[] = [];
     let text = '';
@@ -476,7 +430,6 @@ export class LocalAdapter implements ContentGenerator {
 
     // 工具调用
     if (choice.message?.tool_calls && Array.isArray(choice.message.tool_calls)) {
-      console.log('[localAdapter] tool_calls:', JSON.stringify(choice.message.tool_calls));
       functionCalls = choice.message.tool_calls.map((toolCall: any) => {
         let args = {};
         if (toolCall.function?.arguments) {
@@ -583,6 +536,8 @@ export class LocalAdapter implements ContentGenerator {
       stream_options: config?.stream_options ?? null,
       tool_choice: config?.tool_choice ?? 'auto',
     };
+
+    // console.log('[localAdapter] requestObj:', requestObj);
     
     // 根据模型类型调整请求参数
     this.adjustRequestForModel(requestObj, modelType);
@@ -624,24 +579,20 @@ export class LocalAdapter implements ContentGenerator {
     const seenToolCalls = new Set<string>();
     const textDecoder = new TextDecoder();
     const self = this;
-    console.log('[localAdapter][stream] 开始读取流...');
     while (true) {
       let readResult;
       try {
         readResult = await reader.read();
       } catch (err) {
-        console.error('[localAdapter][stream] 读取流时出错:', err);
         throw err;
       }
       const { done, value } = readResult;
 
       if (done) {
-        console.log('[localAdapter][stream] 流读取完毕');
         break;
       }
 
       const chunkStr = textDecoder.decode(value);
-      console.log('[localAdapter][stream] 收到chunk:', chunkStr);
       buffer += chunkStr;
       let lines = buffer.split('\n');
       buffer = lines.pop()!; // 最后一行可能是不完整的，留到下次
@@ -655,12 +606,10 @@ export class LocalAdapter implements ContentGenerator {
           try {
             chunk = JSON.parse(jsonStr);
           } catch (err) {
-            console.error('[localAdapter][stream] JSON解析失败:', err, '内容:', jsonStr);
             continue;
           }
           const choice = chunk.choices?.[0];
           if (choice && choice.finish_reason) {
-            console.log('[localAdapter][stream] 解析到 finish_reason:', choice.finish_reason);
             if (choice.message?.tool_calls) {
               choice.message.tool_calls = choice.message.tool_calls.filter((tc: any) => {
                 const key = tc.function?.name + JSON.stringify(tc.function?.arguments);
@@ -670,7 +619,6 @@ export class LocalAdapter implements ContentGenerator {
               });
             }
             const result = self.buildResponse(choice, request as GenerateContentParameters);
-            console.log('[localAdapter][stream] yield 一个响应:', JSON.stringify(result));
             yield result;
           }
         }
