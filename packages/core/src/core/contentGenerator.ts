@@ -15,10 +15,12 @@ import {
 } from '@google/genai';
 import { createCodeAssistContentGenerator } from '../code_assist/codeAssist.js';
 import { DEFAULT_GEMINI_MODEL } from '../config/models.js';
+import { Config } from '../config/config.js';
 import { getEffectiveModel } from './modelCheck.js';
 import { LocalAdapter } from './localAdapter.js';
 import { OpenAIAdapter } from './openaiAdapter.js';
 import { OllamaAdapter } from './ollamaAdapter.js';
+import { UserTierId } from '../code_assist/types.js';
 
 /**
  * Interface abstracting the core functionalities for generating content and counting tokens.
@@ -35,12 +37,15 @@ export interface ContentGenerator {
   countTokens(request: CountTokensParameters): Promise<CountTokensResponse>;
 
   embedContent(request: EmbedContentParameters): Promise<EmbedContentResponse>;
+
+  userTier?: UserTierId;
 }
 
 export enum AuthType {
   LOGIN_WITH_GOOGLE = 'oauth-personal',
   USE_GEMINI = 'gemini-api-key',
   USE_VERTEX_AI = 'vertex-ai',
+  CLOUD_SHELL = 'cloud-shell',
 }
 
 export type ContentGeneratorConfig = {
@@ -50,21 +55,20 @@ export type ContentGeneratorConfig = {
   authType?: AuthType | undefined;
   provider?: string;
   apiVersion?: string;
+  proxy?: string | undefined;
 };
 
-export async function createContentGeneratorConfig(
-  model: string | undefined,
+export function createContentGeneratorConfig(
+  config: Config,
   authType: AuthType | undefined,
-  config?: { getModel?: () => string },
-): Promise<ContentGeneratorConfig> {
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-  const googleApiKey = process.env.GOOGLE_API_KEY;
-  const googleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
-  const googleCloudLocation = process.env.GOOGLE_CLOUD_LOCATION;
+): ContentGeneratorConfig {
+  const geminiApiKey = process.env.GEMINI_API_KEY || undefined;
+  const googleApiKey = process.env.GOOGLE_API_KEY || undefined;
+  const googleCloudProject = process.env.GOOGLE_CLOUD_PROJECT || undefined;
+  const googleCloudLocation = process.env.GOOGLE_CLOUD_LOCATION || undefined;
 
   // Use runtime model from config if available, otherwise fallback to parameter or default
-  const effectiveModel = config?.getModel?.() || model || DEFAULT_GEMINI_MODEL;
-  
+  const effectiveModel = config?.getModel?.() || DEFAULT_GEMINI_MODEL;
   // 获取 provider 从环境变量
   const provider = process.env.GEMINI_PROVIDER || 'gemini';
 
@@ -72,18 +76,25 @@ export async function createContentGeneratorConfig(
     model: effectiveModel,
     authType,
     provider,
+    apiVersion: config?.getApiVersion?.(),
+    proxy: config?.getProxy?.(),
   };
 
-  // if we are using google auth nothing else to validate for now
-  if (authType === AuthType.LOGIN_WITH_GOOGLE) {
+  // If we are using Google auth or we are in Cloud Shell, there is nothing else to validate for now
+  if (
+    authType === AuthType.LOGIN_WITH_GOOGLE ||
+    authType === AuthType.CLOUD_SHELL
+  ) {
     return contentGeneratorConfig;
   }
 
   if (authType === AuthType.USE_GEMINI && geminiApiKey) {
     contentGeneratorConfig.apiKey = geminiApiKey;
-    contentGeneratorConfig.model = await getEffectiveModel(
+    contentGeneratorConfig.vertexai = false;
+    getEffectiveModel(
       contentGeneratorConfig.apiKey,
       contentGeneratorConfig.model,
+      contentGeneratorConfig.proxy,
     );
 
     return contentGeneratorConfig;
@@ -91,16 +102,10 @@ export async function createContentGeneratorConfig(
 
   if (
     authType === AuthType.USE_VERTEX_AI &&
-    !!googleApiKey &&
-    googleCloudProject &&
-    googleCloudLocation
+    (googleApiKey || (googleCloudProject && googleCloudLocation))
   ) {
     contentGeneratorConfig.apiKey = googleApiKey;
     contentGeneratorConfig.vertexai = true;
-    contentGeneratorConfig.model = await getEffectiveModel(
-      contentGeneratorConfig.apiKey,
-      contentGeneratorConfig.model,
-    );
 
     return contentGeneratorConfig;
   }
@@ -110,7 +115,8 @@ export async function createContentGeneratorConfig(
 
 export async function createContentGenerator(
   config: ContentGeneratorConfig,
-  _sessionId?: string,
+  gcConfig: Config,
+  sessionId?: string,
 ): Promise<ContentGenerator> {
   const version = process.env.CLI_VERSION || process.version;
   const httpOptions = {
@@ -118,42 +124,15 @@ export async function createContentGenerator(
       'User-Agent': `GeminiCLI/${version} (${process.platform}; ${process.arch})`,
     },
   };
-
-  // 
-  const provider = config.provider || process.env.GEMINI_PROVIDER || 'gemini';
-
-  if (provider === 'openai') {
-    const apiKey = process.env.OPENAI_API_KEY || '';
-    const apiBase = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
-    const apiVersion = process.env.OPENAI_API_VERSION || '';
-    const apiModel = config.apiVersion || config.model || process.env.OPENAI_API_MODEL || 'gpt-3.5-turbo';
-    return new OpenAIAdapter({ apiKey, apiBase, apiVersion, apiModel });
-  }
-  
-  if (provider === 'deepseek') {
-    const apiKey = process.env.DEEPSEEK_API_KEY || '';
-    const apiBase = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/v1';
-    const apiVersion = config.apiVersion || process.env.DEEPSEEK_API_VERSION || '';
-    const apiModel = config.model || process.env.DEEPSEEK_API_MODEL || 'deepseek-chat';
-    return new OpenAIAdapter({ apiKey, apiBase, apiVersion, apiModel });
-  }
-
-  if (provider === 'ollama') {
-    const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-    return new OllamaAdapter(baseUrl);
-  }
-
-  if (provider === 'local') {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-    const apiKey = '';
-    const baseUrl = process.env.LOCAL_BASE_URL || 'https://192.168.10.173/sdw/chatbot/sysai/v1';
-    return new LocalAdapter(baseUrl, apiKey);
-  }
-
-  if (config.authType === AuthType.LOGIN_WITH_GOOGLE) {
+  if (
+    config.authType === AuthType.LOGIN_WITH_GOOGLE ||
+    config.authType === AuthType.CLOUD_SHELL
+  ) {
     return createCodeAssistContentGenerator(
       httpOptions,
       config.authType,
+      gcConfig,
+      sessionId,
     );
   }
 
@@ -168,6 +147,21 @@ export async function createContentGenerator(
     });
 
     return googleGenAI.models;
+  }
+
+  if (config.provider === 'openai') {
+    const apiKey = process.env.OPENAI_API_KEY || '';
+    const apiBase = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
+    const apiVersion = config.apiVersion || process.env.OPENAI_API_VERSION || '';
+    const apiModel = config.model || process.env.OPENAI_API_MODEL || 'gpt-3.5-turbo';
+    return new OpenAIAdapter({ apiKey, apiBase, apiVersion, apiModel });
+  }
+  if (config.provider === 'deepseek') {
+    const apiKey = process.env.DEEPSEEK_API_KEY || '';
+    const apiBase = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/v1';
+    const apiVersion = config.apiVersion || process.env.DEEPSEEK_API_VERSION || '';
+    const apiModel = config.model || process.env.DEEPSEEK_API_MODEL || 'deepseek-chat';
+    return new OpenAIAdapter({ apiKey, apiBase, apiVersion, apiModel });
   }
 
   throw new Error(

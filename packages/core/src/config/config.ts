@@ -30,6 +30,7 @@ import { WebSearchTool } from '../tools/web-search.js';
 import { GeminiClient } from '../core/client.js';
 import { FileDiscoveryService } from '../services/fileDiscoveryService.js';
 import { GitService } from '../services/gitService.js';
+import { loadServerHierarchicalMemory } from '../utils/memoryDiscovery.js';
 import { getProjectTempDir } from '../utils/paths.js';
 import {
   initializeTelemetry,
@@ -43,6 +44,7 @@ import {
   DEFAULT_GEMINI_FLASH_MODEL,
 } from './models.js';
 import { ClearcutLogger } from '../telemetry/clearcut-logger/clearcut-logger.js';
+import { shouldAttemptBrowserLaunch } from '../utils/browser.js';
 
 export enum ApprovalMode {
   DEFAULT = 'default',
@@ -58,6 +60,10 @@ export interface BugCommandSettings {
   urlTemplate: string;
 }
 
+export interface SummarizeToolOutputSettings {
+  tokenBudget?: number;
+}
+
 export interface TelemetrySettings {
   enabled?: boolean;
   target?: TelemetryTarget;
@@ -65,6 +71,25 @@ export interface TelemetrySettings {
   logPrompts?: boolean;
 }
 
+export interface GeminiCLIExtension {
+  name: string;
+  version: string;
+  isActive: boolean;
+}
+export interface FileFilteringOptions {
+  respectGitIgnore: boolean;
+  respectGeminiIgnore: boolean;
+}
+// For memory files
+export const DEFAULT_MEMORY_FILE_FILTERING_OPTIONS: FileFilteringOptions = {
+  respectGitIgnore: false,
+  respectGeminiIgnore: true,
+};
+// For all other files
+export const DEFAULT_FILE_FILTERING_OPTIONS: FileFilteringOptions = {
+  respectGitIgnore: true,
+  respectGeminiIgnore: true,
+};
 export class MCPServerConfig {
   constructor(
     // For stdio transport
@@ -84,6 +109,9 @@ export class MCPServerConfig {
     readonly trust?: boolean,
     // Metadata
     readonly description?: string,
+    readonly includeTools?: string[],
+    readonly excludeTools?: string[],
+    readonly extensionName?: string,
   ) {}
 }
 
@@ -95,7 +123,8 @@ export interface SandboxConfig {
 export type FlashFallbackHandler = (
   currentModel: string,
   fallbackModel: string,
-) => Promise<boolean>;
+  error?: unknown,
+) => Promise<boolean | string | null>;
 
 export interface ConfigParameters {
   sessionId: string;
@@ -121,6 +150,7 @@ export interface ConfigParameters {
   usageStatisticsEnabled?: boolean;
   fileFiltering?: {
     respectGitIgnore?: boolean;
+    respectGeminiIgnore?: boolean;
     enableRecursiveFileSearch?: boolean;
   };
   checkpointing?: boolean;
@@ -131,6 +161,14 @@ export interface ConfigParameters {
   model: string;
   extensionContextFilePaths?: string[];
   apiVersion?: string;
+  maxSessionTurns?: number;
+  experimentalAcp?: boolean;
+  listExtensions?: boolean;
+  extensions?: GeminiCLIExtension[];
+  blockedMcpServers?: Array<{ name: string; extensionName: string }>;
+  noBrowser?: boolean;
+  summarizeToolOutput?: Record<string, SummarizeToolOutputSettings>;
+  ideMode?: boolean;
 }
 
 export class Config {
@@ -159,6 +197,7 @@ export class Config {
   private geminiClient!: GeminiClient;
   private readonly fileFiltering: {
     respectGitIgnore: boolean;
+    respectGeminiIgnore: boolean;
     enableRecursiveFileSearch: boolean;
   };
   private fileDiscoveryService: FileDiscoveryService | null = null;
@@ -169,8 +208,22 @@ export class Config {
   private readonly bugCommand: BugCommandSettings | undefined;
   private readonly model: string;
   private readonly extensionContextFilePaths: string[];
+  private readonly noBrowser: boolean;
+  private readonly ideMode: boolean;
   private modelSwitchedDuringSession: boolean = false;
+  private readonly maxSessionTurns: number;
+  private readonly listExtensions: boolean;
+  private readonly _extensions: GeminiCLIExtension[];
+  private readonly _blockedMcpServers: Array<{
+    name: string;
+    extensionName: string;
+  }>;
   flashFallbackHandler?: FlashFallbackHandler;
+  private quotaErrorOccurred: boolean = false;
+  private readonly summarizeToolOutput:
+    | Record<string, SummarizeToolOutputSettings>
+    | undefined;
+  private readonly experimentalAcp: boolean = false;
   private readonly apiVersion: string | undefined;
 
   constructor(params: ConfigParameters) {
@@ -203,6 +256,7 @@ export class Config {
 
     this.fileFiltering = {
       respectGitIgnore: params.fileFiltering?.respectGitIgnore ?? true,
+      respectGeminiIgnore: params.fileFiltering?.respectGeminiIgnore ?? true,
       enableRecursiveFileSearch:
         params.fileFiltering?.enableRecursiveFileSearch ?? true,
     };
@@ -214,6 +268,14 @@ export class Config {
     this.model = params.model;
     this.extensionContextFilePaths = params.extensionContextFilePaths ?? [];
     this.apiVersion = params.apiVersion;
+    this.maxSessionTurns = params.maxSessionTurns ?? -1;
+    this.experimentalAcp = params.experimentalAcp ?? false;
+    this.listExtensions = params.listExtensions ?? false;
+    this._extensions = params.extensions ?? [];
+    this._blockedMcpServers = params.blockedMcpServers ?? [];
+    this.noBrowser = params.noBrowser ?? false;
+    this.summarizeToolOutput = params.summarizeToolOutput;
+    this.ideMode = params.ideMode ?? false;
 
     if (params.contextFileName) {
       setGeminiMdFilename(params.contextFileName);
@@ -232,32 +294,26 @@ export class Config {
     }
   }
 
+  async initialize(): Promise<void> {
+    // Initialize centralized FileDiscoveryService
+    this.getFileService();
+    if (this.getCheckpointingEnabled()) {
+      await this.getGitService();
+    }
+    this.toolRegistry = await this.createToolRegistry();
+  }
+
   async refreshAuth(authMethod: AuthType) {
-    // Always use the original default model when switching auth methods
-    // This ensures users don't stay on Flash after switching between auth types
-    // and allows API key users to get proper fallback behavior from getEffectiveModel
-    const modelToUse = this.model; // Use the original default model
-
-    // Temporarily clear contentGeneratorConfig to prevent getModel() from returning
-    // the previous session's model (which might be Flash)
-    this.contentGeneratorConfig = undefined!;
-
-    const contentConfig = await createContentGeneratorConfig(
-      modelToUse,
-      authMethod,
+    this.contentGeneratorConfig = createContentGeneratorConfig(
       this,
+      authMethod,
     );
 
-    const gc = new GeminiClient(this);
-    this.geminiClient = gc;
-    this.toolRegistry = await createToolRegistry(this);
-    await gc.initialize(contentConfig);
-    this.contentGeneratorConfig = contentConfig;
+    this.geminiClient = new GeminiClient(this);
+    await this.geminiClient.initialize(this.contentGeneratorConfig);
 
     // Reset the session flag since we're explicitly changing auth and using default model
     this.modelSwitchedDuringSession = false;
-
-    // Note: In the future, we may want to reset any cached state when switching auth methods
   }
 
   getSessionId(): string {
@@ -292,6 +348,18 @@ export class Config {
 
   setFlashFallbackHandler(handler: FlashFallbackHandler): void {
     this.flashFallbackHandler = handler;
+  }
+
+  getMaxSessionTurns(): number {
+    return this.maxSessionTurns;
+  }
+
+  setQuotaErrorOccurred(value: boolean): void {
+    this.quotaErrorOccurred = value;
+  }
+
+  getQuotaErrorOccurred(): boolean {
+    return this.quotaErrorOccurred;
   }
 
   getEmbeddingModel(): string {
@@ -416,6 +484,16 @@ export class Config {
   getFileFilteringRespectGitIgnore(): boolean {
     return this.fileFiltering.respectGitIgnore;
   }
+  getFileFilteringRespectGeminiIgnore(): boolean {
+    return this.fileFiltering.respectGeminiIgnore;
+  }
+
+  getFileFilteringOptions(): FileFilteringOptions {
+    return {
+      respectGitIgnore: this.fileFiltering.respectGitIgnore,
+      respectGeminiIgnore: this.fileFiltering.respectGeminiIgnore,
+    };
+  }
 
   getCheckpointingEnabled(): boolean {
     return this.checkpointing;
@@ -448,6 +526,40 @@ export class Config {
     return this.extensionContextFilePaths;
   }
 
+  getExperimentalAcp(): boolean {
+    return this.experimentalAcp;
+  }
+
+  getListExtensions(): boolean {
+    return this.listExtensions;
+  }
+
+  getExtensions(): GeminiCLIExtension[] {
+    return this._extensions;
+  }
+
+  getBlockedMcpServers(): Array<{ name: string; extensionName: string }> {
+    return this._blockedMcpServers;
+  }
+
+  getNoBrowser(): boolean {
+    return this.noBrowser;
+  }
+
+  isBrowserLaunchSuppressed(): boolean {
+    return this.getNoBrowser() || !shouldAttemptBrowserLaunch();
+  }
+
+  getSummarizeToolOutputConfig():
+    | Record<string, SummarizeToolOutputSettings>
+    | undefined {
+    return this.summarizeToolOutput;
+  }
+
+  getIdeMode(): boolean {
+    return this.ideMode;
+  }
+
   async getGitService(): Promise<GitService> {
     if (!this.gitService) {
       this.gitService = new GitService(this.targetDir);
@@ -456,61 +568,76 @@ export class Config {
     return this.gitService;
   }
 
+  async refreshMemory(): Promise<{ memoryContent: string; fileCount: number }> {
+    const { memoryContent, fileCount } = await loadServerHierarchicalMemory(
+      this.getWorkingDir(),
+      this.getDebugMode(),
+      this.getFileService(),
+      this.getExtensionContextFilePaths(),
+      this.getFileFilteringOptions(),
+    );
+
+    this.setUserMemory(memoryContent);
+    this.setGeminiMdFileCount(fileCount);
+
+    return { memoryContent, fileCount };
+  }
+
+  async createToolRegistry(): Promise<ToolRegistry> {
+    const registry = new ToolRegistry(this);
+
+    // helper to create & register core tools that are enabled
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const registerCoreTool = (ToolClass: any, ...args: unknown[]) => {
+      const className = ToolClass.name;
+      const toolName = ToolClass.Name || className;
+      const coreTools = this.getCoreTools();
+      const excludeTools = this.getExcludeTools();
+
+      let isEnabled = false;
+      if (coreTools === undefined) {
+        isEnabled = true;
+      } else {
+        isEnabled = coreTools.some(
+          (tool) =>
+            tool === className ||
+            tool === toolName ||
+            tool.startsWith(`${className}(`) ||
+            tool.startsWith(`${toolName}(`),
+        );
+      }
+
+      if (
+        excludeTools?.includes(className) ||
+        excludeTools?.includes(toolName)
+      ) {
+        isEnabled = false;
+      }
+
+      if (isEnabled) {
+        registry.registerTool(new ToolClass(...args));
+      }
+    };
+
+    registerCoreTool(LSTool, this);
+    registerCoreTool(ReadFileTool, this);
+    registerCoreTool(GrepTool, this);
+    registerCoreTool(GlobTool, this);
+    registerCoreTool(EditTool, this);
+    registerCoreTool(WriteFileTool, this);
+    registerCoreTool(WebFetchTool, this);
+    registerCoreTool(ReadManyFilesTool, this);
+    registerCoreTool(ShellTool, this);
+    registerCoreTool(MemoryTool);
+    registerCoreTool(WebSearchTool, this);
+
+    await registry.discoverTools();
+    return registry;
+  }
+
   getApiVersion(): string | undefined {
     return this.apiVersion;
   }
 }
-
-export function createToolRegistry(config: Config): Promise<ToolRegistry> {
-  const registry = new ToolRegistry(config);
-  const targetDir = config.getTargetDir();
-
-  // helper to create & register core tools that are enabled
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const registerCoreTool = (ToolClass: any, ...args: unknown[]) => {
-    const className = ToolClass.name;
-    const toolName = ToolClass.Name || className;
-    const coreTools = config.getCoreTools();
-    const excludeTools = config.getExcludeTools();
-
-    let isEnabled = false;
-    if (coreTools === undefined) {
-      isEnabled = true;
-    } else {
-      isEnabled = coreTools.some(
-        (tool) =>
-          tool === className ||
-          tool === toolName ||
-          tool.startsWith(`${className}(`) ||
-          tool.startsWith(`${toolName}(`),
-      );
-    }
-
-    if (excludeTools?.includes(className) || excludeTools?.includes(toolName)) {
-      isEnabled = false;
-    }
-
-    if (isEnabled) {
-      registry.registerTool(new ToolClass(...args));
-    }
-  };
-
-  registerCoreTool(LSTool, targetDir, config);
-  registerCoreTool(ReadFileTool, targetDir, config);
-  registerCoreTool(GrepTool, targetDir);
-  registerCoreTool(GlobTool, targetDir, config);
-  registerCoreTool(EditTool, config);
-  registerCoreTool(WriteFileTool, config);
-  registerCoreTool(WebFetchTool, config);
-  registerCoreTool(ReadManyFilesTool, targetDir, config);
-  registerCoreTool(ShellTool, config);
-  registerCoreTool(MemoryTool);
-  registerCoreTool(WebSearchTool, config);
-  return (async () => {
-    await registry.discoverTools();
-    return registry;
-  })();
-}
-
 // Export model constants for use in CLI
 export { DEFAULT_GEMINI_FLASH_MODEL };
