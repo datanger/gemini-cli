@@ -64,10 +64,10 @@ export class OpenAIAdapter {
           message.content = functionResponse.functionResponse?.response?.output || '';
         } else {
           // 检查是否有 functionCall
-          const functionCalls = c.parts.filter((p: any) => p.functionCall);
-          if (functionCalls.length > 0) {
-            // 如果有 functionCall，使用第一个
-            message.content = functionCalls[0].functionCall;
+          const functionCall = c.parts.find((p: any) => p.functionCall);
+          if (functionCall) {
+            // 如果有 functionCall，使用它
+            message.content = JSON.stringify(functionCall.functionCall);
           } else {
             // 否则使用文本内容，即使为空也要保留
             const textContent = c.parts.map((p: any) => p.text || '').join('');
@@ -119,52 +119,11 @@ export class OpenAIAdapter {
     
     const completion = await openai.chat.completions.create(requestConfig);
     
-    // 构建 parts 数组
-    const parts: any[] = [];
-    const functionCalls = completion.choices[0].message.tool_calls?.map((tc: any) => {
-      let args = {};
-      if (tc.function?.arguments) {
-        try {
-          args = JSON.parse(tc.function.arguments);
-        } catch (error) {
-          console.error('[DEBUG] Failed to parse tool arguments:', tc.function.arguments, error);
-          args = {};
-        }
-      }
-      return {
-        name: tc.function?.name || '',
-        args,
-        id: tc.id
-      };
-    }) || undefined;
-
-    // 如果有文本内容，添加到 parts
-    if (completion.choices[0].message.content) {
-      parts.push({ text: completion.choices[0].message.content });
-    }
-    
-    // 如果有工具调用，添加到 parts
-    if (functionCalls && functionCalls.length > 0) {
-      for (const functionCall of functionCalls) {
-        parts.push({ 
-          functionCall: {
-            name: functionCall.name,
-            args: functionCall.args
-          }
-        });
-      }
-    }
-    
-    // 如果没有内容，添加空文本
-    if (parts.length === 0) {
-      parts.push({ text: '' });
-    }
-    
     const response: GenerateContentResponse = {
       candidates: [
         {
           content: {
-            parts,
+            parts: [{ text: completion.choices[0].message.content || '' }],
             role: 'model',
           },
           index: 0,
@@ -174,7 +133,22 @@ export class OpenAIAdapter {
       ],
       text: completion.choices[0].message.content || '',
       data: undefined,
-      functionCalls: functionCalls,
+      functionCalls: completion.choices[0].message.tool_calls?.map((tc: any) => {
+        let args = {};
+        if (tc.function?.arguments) {
+          try {
+            args = JSON.parse(tc.function.arguments);
+          } catch (error) {
+            console.error('[DEBUG] Failed to parse tool arguments:', tc.function.arguments, error);
+            args = {};
+          }
+        }
+        return {
+          name: tc.function?.name || '',
+          args,
+          id: tc.id
+        };
+      }) || undefined,
       executableCode: undefined,
       codeExecutionResult: undefined,
     };
@@ -214,6 +188,7 @@ export class OpenAIAdapter {
       
       if (openaiTools.length > 0) {
         requestConfig.tools = openaiTools;
+        // console.log('[DEBUG] OpenAI tools:', JSON.stringify(openaiTools, null, 2));
       }
     }
     
@@ -223,11 +198,12 @@ export class OpenAIAdapter {
     const toolCallsBuffer: any[] = [];
     let accumulatedText = '';
     let hasToolCalls = false;
-    let hasText = false;
     
     async function* gen() {
       for await (const chunk of stream) {
         // 处理工具调用
+        // console.log('\n[DEBUG] OpenAI tool calls:', JSON.stringify(chunk.choices[0]?.delta?.tool_calls, null, 2));
+        // console.log('\n[DEBUG] OpenAI contents:', JSON.stringify(chunk.choices[0]?.delta?.content, null, 2));
         if (chunk.choices[0]?.delta?.tool_calls) {
           hasToolCalls = true;
           for (const toolCall of chunk.choices[0].delta.tool_calls) {
@@ -258,115 +234,77 @@ export class OpenAIAdapter {
         // 累积文本内容
         if (chunk.choices[0]?.delta?.content) {
           accumulatedText += chunk.choices[0].delta.content;
-          hasText = true;
         }
         
         // 检查是否完成
         const isDone = chunk.choices[0]?.finish_reason === 'stop' || 
                       chunk.choices[0]?.finish_reason === 'tool_calls';
         
-        // 如果有工具调用且完成，或者有文本内容且完成，则返回结果
-        if (isDone) {
-          // 处理工具调用
-          if (hasToolCalls && toolCallsBuffer.length > 0) {
-            const functionCalls = toolCallsBuffer.map((tc: any) => {
-              let args = {};
-              if (tc.function?.arguments) {
-                try {
-                  args = JSON.parse(tc.function.arguments);
-                } catch (_error) {
-                  // 如果JSON不完整，返回空对象
-                  args = {};
-                }
+        // 如果有工具调用且完成，或者没有工具调用但有文本内容，则返回结果
+        if (isDone || (!hasToolCalls && chunk.choices[0]?.delta?.content)) {
+          const functionCalls = toolCallsBuffer.length > 0 ? toolCallsBuffer.map((tc: any) => {
+            let args = {};
+            if (tc.function?.arguments) {
+              try {
+                args = JSON.parse(tc.function.arguments);
+              } catch (_error) {
+                // 如果JSON不完整，返回空对象
+                args = {};
               }
-              return {
-                name: tc.function?.name || '',
-                args,
-                id: tc.id
-              };
-            });
-
-            // 构建 parts 数组 - 工具调用
-            const parts: any[] = [];
-            for (const functionCall of functionCalls) {
-              parts.push({ 
-                functionCall: {
-                  name: functionCall.name,
-                  args: functionCall.args
-                }
-              });
             }
+            return {
+              name: tc.function?.name || '',
+              args,
+              id: tc.id
+            };
+          }) : undefined;
+
+          // 构建 parts 数组
+          const parts = [];
+          if (accumulatedText) {
+            parts.push({ text: accumulatedText });
+          }
+          if (functionCalls && functionCalls.length > 0) {
+            // 将工具调用转换为 functionCall 格式
+            parts.push({ 
+              functionCall: {
+                name: functionCalls[0].name,
+                args: functionCalls[0].args
+              }
+            });
+          }
+          
+          // 只在完成时返回结果，或者文本长度超过20时返回
+          if (isDone || accumulatedText.length >= 10) {
+            yield {
+              candidates: [
+                {
+                  content: {
+                    parts: parts.length > 0 ? parts : [{ text: '' }],
+                    role: 'model',
+                  },
+                  index: 0,
+                  finishReason: chunk.choices[0]?.finish_reason,
+                  safetyRatings: [],
+                },
+              ],
+              text: accumulatedText || '',
+              functionCalls: functionCalls ? functionCalls : undefined,
+              data: undefined,
+              executableCode: undefined,
+              codeExecutionResult: undefined,
+            };
             
-            yield {
-              candidates: [
-                {
-                  content: {
-                    parts,
-                    role: 'model',
-                  },
-                  index: 0,
-                  finishReason: chunk.choices[0]?.finish_reason,
-                  safetyRatings: [],
-                },
-              ],
-              text: '',
-              functionCalls: functionCalls,
-              data: undefined,
-              executableCode: undefined,
-              codeExecutionResult: undefined,
-            };
+            // 重置状态
+            if (isDone) {
+              accumulatedText = '';
+              toolCallsBuffer.length = 0;
+              hasToolCalls = false;
+            } else {
+              // 如果不是完成状态，重置累积的文本
+              accumulatedText = '';
+            }
           }
-          
-          // 处理文本内容
-          if (hasText && accumulatedText) {
-            yield {
-              candidates: [
-                {
-                  content: {
-                    parts: [{ text: accumulatedText }],
-                    role: 'model',
-                  },
-                  index: 0,
-                  finishReason: chunk.choices[0]?.finish_reason,
-                  safetyRatings: [],
-                },
-              ],
-              text: accumulatedText,
-              functionCalls: undefined,
-              data: undefined,
-              executableCode: undefined,
-              codeExecutionResult: undefined,
-            };
-          }
-          
-          // 重置状态
-          accumulatedText = '';
-          toolCallsBuffer.length = 0;
-          hasToolCalls = false;
-          hasText = false;
-        } else if (hasText && accumulatedText.length >= 10) {
-          // 文本长度超过阈值时，先输出文本
-          yield {
-            candidates: [
-              {
-                content: {
-                  parts: [{ text: accumulatedText }],
-                  role: 'model',
-                },
-                index: 0,
-                finishReason: undefined,
-                safetyRatings: [],
-              },
-            ],
-            text: accumulatedText,
-            functionCalls: undefined,
-            data: undefined,
-            executableCode: undefined,
-            codeExecutionResult: undefined,
-          };
-          
-          // 重置累积的文本
-          accumulatedText = '';
         }
       }
     }
