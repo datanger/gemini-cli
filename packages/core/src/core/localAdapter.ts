@@ -246,7 +246,7 @@ export class LocalAdapter implements ContentGenerator {
     const url = this.baseUrl.replace(/\/+$/, '') + endpoint;
     
           // 设置超时
-      const timeout = parseInt(process.env.DEEPSEEK_TIMEOUT || '30000'); // 默认30秒
+      const timeout = parseInt(process.env.DEEPSEEK_TIMEOUT || '120000'); // 默认120秒（2分钟）
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 

@@ -25,7 +25,7 @@ import {
   UnauthorizedError,
   UserPromptEvent,
 } from '@google/gemini-cli-core';
-import { type Part, type PartListUnion } from '@google/genai';
+import { type Part, type PartListUnion, type FunctionCall } from '@google/genai';
 import {
   StreamingState,
   HistoryItem,
@@ -51,6 +51,9 @@ import {
   TrackedCompletedToolCall,
   TrackedCancelledToolCall,
 } from './useReactToolScheduler.js';
+
+// 导入工作流组件
+import { WorkflowOrchestrator } from '@google/gemini-cli-core';
 
 export function mergePartListUnions(list: PartListUnion[]): PartListUnion {
   const resultParts: PartListUnion = [];
@@ -101,11 +104,31 @@ export const useGeminiStream = (
   const processedMemoryToolsRef = useRef<Set<string>>(new Set());
   const logger = useLogger();
   const lastToolCallKeyRef = useRef<string | null>(null);
+  const lastUserInputRef = useRef<string>('');
   const gitService = useMemo(() => {
     if (!config.getProjectRoot()) {
       return;
     }
     return new GitService(config.getProjectRoot());
+  }, [config]);
+
+  // 初始化工作流编排器
+  const [workflowOrchestrator, setWorkflowOrchestrator] = useState<WorkflowOrchestrator | null>(null);
+  
+  useEffect(() => {
+    const initializeWorkflowOrchestrator = async () => {
+      console.log('🔧 [useGeminiStream] Initializing WorkflowOrchestrator');
+      try {
+        const toolRegistry = await config.getToolRegistry();
+        const orchestrator = new WorkflowOrchestrator(config, toolRegistry);
+        setWorkflowOrchestrator(orchestrator);
+        console.log('✅ [useGeminiStream] WorkflowOrchestrator initialized successfully');
+      } catch (error) {
+        console.error('❌ [useGeminiStream] Failed to initialize WorkflowOrchestrator:', error);
+      }
+    };
+    
+    initializeWorkflowOrchestrator();
   }, [config]);
 
   const [toolCalls, scheduleToolCalls, markToolsAsSubmitted] =
@@ -217,6 +240,8 @@ export const useGeminiStream = (
 
       if (typeof query === 'string') {
         const trimmedQuery = query.trim();
+        lastUserInputRef.current = trimmedQuery; // 保存用户输入
+        
         logUserPrompt(
           config,
           new UserPromptEvent(trimmedQuery.length, trimmedQuery),
@@ -449,6 +474,7 @@ export const useGeminiStream = (
             );
             break;
           case ServerGeminiEventType.ToolCallRequest:
+            console.log('🔧 [useGeminiStream] Received tool call request:', event.value);
             toolCallRequests.push(event.value);
             break;
           case ServerGeminiEventType.UserCancelled:
@@ -471,8 +497,12 @@ export const useGeminiStream = (
           }
         }
       }
+      
       if (toolCallRequests.length > 0) {
-        scheduleToolCalls(toolCallRequests, signal);
+        console.log(`🎯 [useGeminiStream] Processing ${toolCallRequests.length} tool call requests`);
+        
+        // 尝试通过工作流编排器处理
+        await handleToolCallsWithWorkflow(toolCallRequests, signal);
       }
       return StreamProcessingStatus.Completed;
     },
@@ -482,7 +512,80 @@ export const useGeminiStream = (
       handleErrorEvent,
       scheduleToolCalls,
       handleChatCompressionEvent,
+      workflowOrchestrator,
     ],
+  );
+
+  /**
+   * 使用工作流编排器处理工具调用
+   */
+  const handleToolCallsWithWorkflow = useCallback(
+    async (toolCallRequests: ToolCallRequestInfo[], signal: AbortSignal) => {
+      console.log('🚀 [useGeminiStream] Attempting workflow orchestration');
+      
+      // 如果工作流编排器还没有初始化，回退到常规调度
+      if (!workflowOrchestrator) {
+        console.log('⚠️ [useGeminiStream] WorkflowOrchestrator not initialized, falling back to regular scheduling');
+        scheduleToolCalls(toolCallRequests, signal);
+        return;
+      }
+      
+      try {
+        // 转换为 FunctionCall 格式
+        const functionCalls: FunctionCall[] = toolCallRequests.map(request => ({
+          name: request.name,
+          args: request.args || {}
+        }));
+
+        // 生成会话ID
+        const sessionId = `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const userInput = lastUserInputRef.current;
+
+        console.log(`🎯 [useGeminiStream] Orchestrating execution for session: ${sessionId}`);
+        console.log(`💬 [useGeminiStream] User input: "${userInput}"`);
+        console.log(`🔧 [useGeminiStream] Function calls:`, functionCalls);
+
+        // 尝试通过工作流编排器执行
+        const orchestrationResult = await workflowOrchestrator.orchestrateExecution(
+          sessionId,
+          userInput,
+          functionCalls,
+          signal
+        );
+
+        console.log('📊 [useGeminiStream] Orchestration result:', {
+          workflowTriggered: orchestrationResult.workflowTriggered,
+          phasesExecuted: orchestrationResult.phasesExecuted,
+          toolResultsCount: orchestrationResult.toolResults.length,
+          errorsCount: orchestrationResult.errors.length
+        });
+
+        if (orchestrationResult.workflowTriggered) {
+          console.log('✅ [useGeminiStream] Workflow was triggered and executed');
+          // 工作流被触发，不需要回退到常规调度
+          if (orchestrationResult.finalReport) {
+            addItem(
+              {
+                type: MessageType.INFO,
+                text: orchestrationResult.finalReport,
+              },
+              Date.now(),
+            );
+          }
+        } else {
+          console.log('⚡ [useGeminiStream] Falling back to regular tool scheduling');
+          // 工作流未被触发，回退到常规工具调度
+          scheduleToolCalls(toolCallRequests, signal);
+        }
+
+      } catch (error) {
+        console.error('❌ [useGeminiStream] Workflow orchestration failed:', error);
+        // 发生错误时回退到常规工具调度
+        console.log('🔄 [useGeminiStream] Falling back to regular scheduling due to error');
+        scheduleToolCalls(toolCallRequests, signal);
+      }
+    },
+    [workflowOrchestrator, scheduleToolCalls, addItem]
   );
 
   const submitQuery = useCallback(

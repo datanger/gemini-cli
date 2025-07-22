@@ -146,7 +146,7 @@ export async function createContentGenerator(
   if (provider === 'local') {
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     const apiKey = '';
-    const baseUrl = process.env.LOCAL_BASE_URL || 'https://192.168.10.173/sdw/chatbot/sysai/v1';
+    const baseUrl = process.env.LOCAL_BASE_URL || 'https://192.168.146.16/sdw/chatbot/sysai/v1';
     return new LocalAdapter(baseUrl, apiKey);
   }
 

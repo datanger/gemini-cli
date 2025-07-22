@@ -154,7 +154,7 @@ export async function runNonInteractive(
             console.log(toolResponse.resultDisplay);
           }
         }
-        // console.log('[DEBUG] Tool response parts:', JSON.stringify(toolResponseParts, null, 2));
+        console.log('[DEBUG] Tool response parts:', JSON.stringify(toolResponseParts, null, 2));
         currentMessages = [{ role: 'user', parts: toolResponseParts }];
       } else {
         process.stdout.write('\n'); // Ensure a final newline
