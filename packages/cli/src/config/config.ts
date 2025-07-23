@@ -57,6 +57,8 @@ interface CliArgs {
   telemetryLogPrompts: boolean | undefined;
   provider: string | undefined;
   apiversion: string | undefined;
+  plain: boolean | undefined;
+  json: boolean | undefined;
 }
 
 async function parseArguments(): Promise<CliArgs> {
@@ -142,6 +144,16 @@ async function parseArguments(): Promise<CliArgs> {
       type: 'string',
       description: 'API version for OpenAI-compatible providers',
       default: process.env.OPENAI_API_VERSION || '',
+    })
+    .option('plain', {
+      type: 'boolean',
+      description: 'Output plain text for automation',
+      default: false,
+    })
+    .option('json', {
+      type: 'boolean',
+      description: 'Output JSON for automation',
+      default: false,
     })
     .version(await getCliVersion()) // This will enable the --version flag based on package.json
     .alias('v', 'version')

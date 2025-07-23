@@ -33,11 +33,24 @@ import {
   ShellTool,
   WriteFileTool,
   sessionId,
+  GeminiClient,
+  GeminiEventType as ServerGeminiEventType,
+  ServerGeminiStreamEvent as GeminiEvent,
+  ServerGeminiContentEvent as ContentEvent,
+  ServerGeminiErrorEvent as ErrorEvent,
+  ServerGeminiChatCompressedEvent,
+  getErrorMessage,
+  isNodeError,
+  MessageSenderType,
+  ToolCallRequestInfo,
   logUserPrompt,
   AuthType,
 } from '@google/gemini-cli-core';
+import { Content, FunctionCall, GenerateContentResponse } from '@google/genai';
 import { validateAuthMethod } from './config/auth.js';
 import { setMaxSizedBoxDebugging } from './ui/components/shared/MaxSizedBox.js';
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
 
 function getNodeMemoryArgs(config: Config): string[] {
   const totalMemoryMB = os.totalmem() / (1024 * 1024);
@@ -82,6 +95,11 @@ async function relaunchWithAdditionalArgs(additionalArgs: string[]) {
   await new Promise((resolve) => child.on('close', resolve));
   process.exit(0);
 }
+
+const argv = yargs(hideBin(process.argv))
+  .option('plain', { type: 'boolean', default: false })
+  .option('json', { type: 'boolean', default: false })
+  .parseSync();
 
 export async function main() {
   const workspaceRoot = process.cwd();
@@ -165,6 +183,172 @@ export async function main() {
       }
     }
   }
+
+  // --- plain/json 自动化多轮对话模式 ---
+  if (argv.plain || argv.json) {
+    // Initialize authentication and GeminiClient for plain mode
+    const selectedAuthType = settings.merged.selectedAuthType || AuthType.USE_GEMINI;
+    const err = validateAuthMethod(selectedAuthType);
+    if (err != null) {
+      console.error(err);
+      process.exit(1);
+    }
+    
+    await config.refreshAuth(selectedAuthType);
+    
+    // 使用原有的gemini-cli上下文管理机制
+    const geminiClient = config.getGeminiClient();
+    const toolRegistry = await config.getToolRegistry();
+    const chat = await geminiClient.getChat();
+    
+    // Helper to extract text from response parts
+    function getResponseText(resp: GenerateContentResponse): string | undefined {
+      if (resp.candidates && resp.candidates.length > 0) {
+        const candidate = resp.candidates[0];
+        if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+          return candidate.content.parts[0].text || '';
+        }
+      }
+      return undefined;
+    }
+
+    // 处理多轮对话
+    async function processMultiTurnConversation() {
+      const readline = await import('readline');
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      
+      // 显示提示符
+      if (!argv.json) {
+        process.stdout.write('> ');
+      }
+      
+      // 使用事件监听器实现真正的交互式一问一答
+      rl.on('line', async (line) => {
+        const trimmedLine = line.trim();
+        if (trimmedLine === '') {
+          if (!argv.json) {
+            process.stdout.write('> ');
+          }
+          return; // 跳过空行
+        }
+        
+        try {
+          // 使用原有的gemini-cli机制处理消息
+          const abortController = new AbortController();
+          const currentMessages: Content[] = [{ role: 'user', parts: [{ text: trimmedLine }] }];
+          
+          const functionCalls: FunctionCall[] = [];
+          let hasToolCalls = false;
+          let responseText = '';
+          
+          const responseStream = await chat.sendMessageStream({
+            message: currentMessages[0]?.parts || [],
+            config: {
+              abortSignal: abortController.signal,
+              tools: [
+                { functionDeclarations: toolRegistry.getFunctionDeclarations() },
+              ],
+            },
+          });
+          
+          for await (const resp of responseStream) {
+            if (abortController.signal.aborted) {
+              console.error('Operation cancelled.');
+              return;
+            }
+            
+            const textPart = getResponseText(resp);
+            if (textPart) {
+              responseText += textPart;
+              if (!argv.json) {
+                process.stdout.write(textPart);
+              }
+            }
+            
+            if (resp.functionCalls) {
+              hasToolCalls = true;
+              functionCalls.length = 0; // 清空之前的调用
+              functionCalls.push(...resp.functionCalls);
+            }
+          }
+          
+          // 处理工具调用
+          if (hasToolCalls && functionCalls.length > 0) {
+            for (const functionCall of functionCalls) {
+              const tool = toolRegistry.getTool(functionCall.name || '');
+              if (tool) {
+                try {
+                  const argsString = typeof functionCall.args === 'string' ? functionCall.args : JSON.stringify(functionCall.args || {});
+                  const args = JSON.parse(argsString) as Record<string, unknown>;
+                  const result = await tool.execute(args, abortController.signal);
+                  
+                  // 将工具结果发送回模型
+                  const toolResponse: Content[] = [
+                    {
+                      role: 'user',
+                      parts: [
+                        {
+                          functionResponse: {
+                            name: functionCall.name,
+                            response: { output: result.llmContent || '' }
+                          }
+                        }
+                      ]
+                    }
+                  ];
+                  
+                  // 继续对话，让模型处理工具结果
+                  const continueStream = await chat.sendMessageStream({
+                    message: toolResponse[0]?.parts || [],
+                    config: {
+                      abortSignal: abortController.signal,
+                    },
+                  });
+                  
+                  for await (const continueResp of continueStream) {
+                    const continueText = getResponseText(continueResp);
+                    if (continueText) {
+                      responseText += continueText;
+                      if (!argv.json) {
+                        process.stdout.write(continueText);
+                      }
+                    }
+                  }
+                } catch (error) {
+                  console.error(`Error executing tool ${functionCall.name}:`, error);
+                }
+              }
+            }
+          }
+          
+          // 输出最终结果
+          if (argv.json) {
+            console.log(JSON.stringify({ response: responseText }));
+          } else {
+            console.log(); // 换行
+            process.stdout.write('> ');
+          }
+          
+        } catch (error) {
+          console.error('Error processing message:', error);
+          if (!argv.json) {
+            process.stdout.write('> ');
+          }
+        }
+      });
+      
+      // 等待用户输入结束
+      await new Promise((resolve) => {
+        rl.on('close', resolve);
+        process.stdin.on('end', resolve);
+      });
+    }
+    
+    // 启动多轮对话
+    await processMultiTurnConversation();
+    return;
+  }
+
   let input = config.getQuestion();
   const startupWarnings = [
     ...(await getStartupWarnings()),
