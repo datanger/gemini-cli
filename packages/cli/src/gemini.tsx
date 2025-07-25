@@ -212,131 +212,128 @@ export async function main() {
       return undefined;
     }
 
+    // // 显示提示符
+    // if (!argv.json) {
+    //   process.stdout.write('👤 Input: ');
+    // }
+
     // 处理多轮对话
     async function processMultiTurnConversation() {
       const readline = await import('readline');
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      
-      // 显示提示符
-      if (!argv.json) {
-        process.stdout.write('> ');
+
+
+      // 美化工具调用提示
+      function printToolCallBanner(name: string, args: unknown) {
+        const cyan = '\x1b[36m';
+        const reset = '\x1b[0m';
+        const bold = '\x1b[1m';
+        // const prettyArgs = JSON.stringify(args, null, 2);
+        // const banner = `\n${bold}${cyan}正在处理工具调用: [${name}]${reset}\n${cyan}参数:${reset}\n${prettyArgs}\n`;
+        const banner = `\n${bold}${cyan}正在处理工具调用: [${name}]${reset}\n`;
+        process.stdout.write(banner);
       }
-      
-      // 使用事件监听器实现真正的交互式一问一答
+
       rl.on('line', async (line) => {
         const trimmedLine = line.trim();
         if (trimmedLine === '') {
-          if (!argv.json) {
-            process.stdout.write('> ');
-          }
           return; // 跳过空行
         }
-        
+
+        process.stdout.write('🤖 Output: ');
+
         try {
-          // 使用原有的gemini-cli机制处理消息
-          const abortController = new AbortController();
-          const currentMessages: Content[] = [{ role: 'user', parts: [{ text: trimmedLine }] }];
-          
-          const functionCalls: FunctionCall[] = [];
-          let hasToolCalls = false;
+          let currentMessages: Content[] = [{ role: 'user', parts: [{ text: trimmedLine }] }];
+          let abortController = new AbortController();
           let responseText = '';
-          
-          const responseStream = await chat.sendMessageStream({
-            message: currentMessages[0]?.parts || [],
-            config: {
-              abortSignal: abortController.signal,
-              tools: [
-                { functionDeclarations: toolRegistry.getFunctionDeclarations() },
-              ],
-            },
-          });
-          
-          for await (const resp of responseStream) {
-            if (abortController.signal.aborted) {
-              console.error('Operation cancelled.');
-              return;
-            }
-            
-            const textPart = getResponseText(resp);
-            if (textPart) {
-              responseText += textPart;
-              if (!argv.json) {
-                process.stdout.write(textPart);
+
+          while (true) {
+            const functionCalls: FunctionCall[] = [];
+            let hasToolCalls = false;
+
+            const responseStream = await chat.sendMessageStream({
+              message: currentMessages[0]?.parts || [],
+              config: {
+                abortSignal: abortController.signal,
+                tools: [
+                  { functionDeclarations: toolRegistry.getFunctionDeclarations() },
+                ],
+              },
+            });
+
+            for await (const resp of responseStream) {
+              if (abortController.signal.aborted) {
+                console.error('Operation cancelled.');
+                return;
               }
-            }
-            
-            if (resp.functionCalls) {
-              hasToolCalls = true;
-              functionCalls.length = 0; // 清空之前的调用
-              functionCalls.push(...resp.functionCalls);
-            }
-          }
-          
-          // 处理工具调用
-          if (hasToolCalls && functionCalls.length > 0) {
-            for (const functionCall of functionCalls) {
-              const tool = toolRegistry.getTool(functionCall.name || '');
-              if (tool) {
-                try {
-                  const argsString = typeof functionCall.args === 'string' ? functionCall.args : JSON.stringify(functionCall.args || {});
-                  const args = JSON.parse(argsString) as Record<string, unknown>;
-                  const result = await tool.execute(args, abortController.signal);
-                  
-                  // 将工具结果发送回模型
-                  const toolResponse: Content[] = [
-                    {
-                      role: 'user',
-                      parts: [
-                        {
-                          functionResponse: {
-                            name: functionCall.name,
-                            response: { output: result.llmContent || '' }
-                          }
-                        }
-                      ]
-                    }
-                  ];
-                  
-                  // 继续对话，让模型处理工具结果
-                  const continueStream = await chat.sendMessageStream({
-                    message: toolResponse[0]?.parts || [],
-                    config: {
-                      abortSignal: abortController.signal,
-                    },
-                  });
-                  
-                  for await (const continueResp of continueStream) {
-                    const continueText = getResponseText(continueResp);
-                    if (continueText) {
-                      responseText += continueText;
-                      if (!argv.json) {
-                        process.stdout.write(continueText);
-                      }
-                    }
-                  }
-                } catch (error) {
-                  console.error(`Error executing tool ${functionCall.name}:`, error);
+
+              const textPart = getResponseText(resp);
+              if (textPart) {
+                responseText += textPart;
+                if (!argv.json) {
+                  process.stdout.write(textPart);
                 }
               }
+
+              if (resp.functionCalls) {
+                hasToolCalls = true;
+                functionCalls.length = 0; // 清空之前的调用
+                functionCalls.push(...resp.functionCalls);
+              }
+            }
+
+            // 处理工具调用
+            if (hasToolCalls && functionCalls.length > 0) {
+              const toolResponseParts: any[] = [];
+              for (const functionCall of functionCalls) {
+                console.log('functionCall', functionCall);
+                const tool = toolRegistry.getTool(functionCall.name || '');
+                if (tool) {
+                  printToolCallBanner(functionCall.name || '', functionCall.args);
+                  try {
+                    const argsString = typeof functionCall.args === 'string' ? functionCall.args : JSON.stringify(functionCall.args || {});
+                    const args = JSON.parse(argsString) as Record<string, unknown>;
+                    const result = await tool.execute(args, abortController.signal);
+
+                    // // 输出工具执行结果给用户（可选，plain模式下）
+                    // if (!argv.json && result.returnDisplay) {
+                    //   const green = '\x1b[32m';
+                    //   const reset = '\x1b[0m';
+                    //   console.log(`\n${green}[工具结果]${reset} ${result.returnDisplay}`);
+                    // }
+
+                    // 将工具结果发送回模型
+                    toolResponseParts.push({
+                      functionResponse: {
+                        name: functionCall.name,
+                        response: { output: result.llmContent || '' }
+                      }
+                    });
+                  } catch (error) {
+                    console.error(`Error executing tool ${functionCall.name}:`, error);
+                  }
+                }
+              }
+              // 继续对话，让模型处理工具结果
+              currentMessages = [{ role: 'user', parts: toolResponseParts }];
+              // 不清空 responseText，累计所有回复
+            } else {
+              // 没有工具调用，结束本轮
+              process.stdout.write('\n👤 Input: ');
+              process.stdout.write('\n');
+              break;
             }
           }
-          
-          // 输出最终结果
-          if (argv.json) {
-            console.log(JSON.stringify({ response: responseText }));
-          } else {
-            console.log(); // 换行
-            process.stdout.write('> ');
-          }
-          
+
+
         } catch (error) {
           console.error('Error processing message:', error);
           if (!argv.json) {
-            process.stdout.write('> ');
+            process.stdout.write('\n👤 Input: ');
           }
         }
       });
-      
+
       // 等待用户输入结束
       await new Promise((resolve) => {
         rl.on('close', resolve);
