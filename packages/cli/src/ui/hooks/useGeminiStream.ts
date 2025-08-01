@@ -628,13 +628,8 @@ export const useGeminiStream = (
       // 检查是否回环：所有tool_call都和上一轮完全一致
       const toolCallKeys = geminiTools.map(tc => tc.request.name + JSON.stringify(tc.request.args)).sort().join('|');
       if (lastToolCallKeyRef.current === toolCallKeys) {
-        addItem(
-          {
-            type: MessageType.ERROR,
-            text: '检测到重复工具调用，已终止循环。',
-          },
-          Date.now(),
-        );
+        // 记录日志或执行其他处理
+        console.warn('Detected duplicate tool calls. Skipping this iteration.');
         return;
       }
       lastToolCallKeyRef.current = toolCallKeys;

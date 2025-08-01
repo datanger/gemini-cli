@@ -185,6 +185,9 @@ export class OpenAIAdapter {
           }
         }
       }
+
+      // 此处增加openaiTools日志
+      console.log('[DEBUG] OpenAI tools:', JSON.stringify(openaiTools, null, 2));
       
       if (openaiTools.length > 0) {
         requestConfig.tools = openaiTools;
