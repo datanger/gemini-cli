@@ -292,7 +292,7 @@ export class LocalAdapter implements ContentGenerator {
         throw new Error(`Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
       }
 
-          } catch (err) {
+    } catch (err) {
         clearTimeout(timeoutId);
         
         if (err instanceof Error) {
