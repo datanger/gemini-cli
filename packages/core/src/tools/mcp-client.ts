@@ -324,11 +324,64 @@ async function connectAndDiscover(
 
       sanitizeParameters(funcDecl.parameters);
 
-      // Ensure parameters is a valid JSON schema object, default to empty if not.
+      // 确保参数schema中的类型都是小写格式
+      const normalizeSchemaTypes = (schema: any): any => {
+        if (!schema || typeof schema !== 'object') {
+          return schema;
+        }
+        
+        const normalized = { ...schema };
+        
+        // 转换类型为小写
+        if (normalized.type && typeof normalized.type === 'string') {
+          const typeMap: Record<string, string> = {
+            'STRING': 'string',
+            'NUMBER': 'number', 
+            'BOOLEAN': 'boolean',
+            'OBJECT': 'object',
+            'ARRAY': 'array',
+            'INTEGER': 'integer'
+          };
+          const originalType = normalized.type;
+          normalized.type = typeMap[normalized.type] || normalized.type;
+          
+          // 添加调试信息
+          if (originalType !== normalized.type) {
+            console.log(`[MCP] 类型转换: ${originalType} -> ${normalized.type}`);
+          }
+        }
+        
+        // 递归处理嵌套的schema
+        if (normalized.items) {
+          normalized.items = normalizeSchemaTypes(normalized.items);
+        }
+        
+        if (normalized.properties && typeof normalized.properties === 'object') {
+          const normalizedProperties: Record<string, any> = {};
+          for (const [key, value] of Object.entries(normalized.properties)) {
+            normalizedProperties[key] = normalizeSchemaTypes(value);
+          }
+          normalized.properties = normalizedProperties;
+        }
+        
+        if (normalized.anyOf && Array.isArray(normalized.anyOf)) {
+          normalized.anyOf = normalized.anyOf.map((item: any) => normalizeSchemaTypes(item));
+        }
+        
+        return normalized;
+      };
+
+      // 添加调试信息
+      console.log(`[MCP] 处理工具: ${funcDecl.name}`);
+      console.log(`[MCP] 原始参数schema:`, JSON.stringify(funcDecl.parameters, null, 2));
+
+      // 确保 parameters is a valid JSON schema object, default to empty if not.
       const parameterSchema: Record<string, unknown> =
         funcDecl.parameters && typeof funcDecl.parameters === 'object'
-          ? { ...(funcDecl.parameters as FunctionDeclaration) }
+          ? normalizeSchemaTypes({ ...(funcDecl.parameters as FunctionDeclaration) })
           : { type: 'object', properties: {} };
+
+      console.log(`[MCP] 标准化后的参数schema:`, JSON.stringify(parameterSchema, null, 2));
 
       toolRegistry.registerTool(
         new DiscoveredMCPTool(

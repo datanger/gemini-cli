@@ -66,8 +66,8 @@ export class OpenAIAdapter {
           // 检查是否有 functionCall
           const functionCalls = c.parts.filter((p: any) => p.functionCall);
           if (functionCalls.length > 0) {
-            // 如果有 functionCall，使用第一个
-            message.content = functionCalls[0].functionCall;
+            // 如果有 functionCall，将其转换为字符串
+            message.content = '[FunctionCall] ' + JSON.stringify(functionCalls[0].functionCall);
           } else {
             // 否则使用文本内容，即使为空也要保留
             const textContent = c.parts.map((p: any) => p.text || '').join('');

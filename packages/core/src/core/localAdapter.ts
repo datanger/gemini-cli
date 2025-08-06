@@ -30,6 +30,7 @@ interface LocalRequest {
   frequency_penalty?: number;
   top_p?: number;
   tools?: LocalTool[];
+  Authorization?: string;  // 新增：Authorization token字段
 }
 
 interface LocalTool {
@@ -231,9 +232,16 @@ export class LocalAdapter implements ContentGenerator {
         'Content-Type': 'application/json',
       };
 
-      // 只有在提供了 API Key 时才添加认证头
+      // 设置默认Authorization token
+      const defaultAuthToken = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJhcHBJZCI6ImFnZW50IiwidXNlcklkIjoiMzc2NyIsInVzZXJuYW1lIjoieGllZGNoaXRpYW4iLCJleHAiOjE3NTY1MzI1MTR9.MrAdGAd6IciSKiY978CgG-VkD5KKsrwBYSomAVV9X-o';
+      
+      // 优先使用请求中的Authorization，否则使用默认值
+      const authToken = (data as any)?.Authorization || defaultAuthToken;
+      headers['Authorization'] = `Bearer ${authToken}`;
+
+      // 只有在提供了 API Key 时才添加额外的认证头
       if (this.apiKey) {
-        headers['Authorization'] = `Bearer ${this.apiKey}`;
+        headers['X-API-Key'] = this.apiKey;
       }
 
     // 检查是否是 HTTPS 请求，如果是则设置环境变量忽略 SSL 证书验证
@@ -322,7 +330,35 @@ export class LocalAdapter implements ContentGenerator {
             } else if ('functionCall' in part) {
               segments.push('[FunctionCall] ' + JSON.stringify(part.functionCall));
             } else if ('functionResponse' in part) {
-              segments.push('[FunctionResponse] ' + JSON.stringify(part.functionResponse));
+              // 确保functionResponse被正确处理为字符串
+              const functionResponse = part.functionResponse;
+              if (functionResponse && typeof functionResponse === 'object') {
+                // 提取functionResponse中的文本内容
+                const response = (functionResponse as any).response;
+                if (response && response.content) {
+                  if (Array.isArray(response.content)) {
+                    // 如果是数组，提取所有文本内容
+                    const textParts = response.content
+                      .filter((p: any) => p && typeof p === 'object' && 'text' in p)
+                      .map((p: any) => p.text)
+                      .join('');
+                    if (textParts) {
+                      segments.push(textParts);
+                    } else {
+                      // 如果没有文本内容，使用JSON字符串
+                      segments.push('[FunctionResponse] ' + JSON.stringify(functionResponse));
+                    }
+                  } else if (typeof response.content === 'string') {
+                    segments.push(response.content);
+                  } else {
+                    segments.push('[FunctionResponse] ' + JSON.stringify(functionResponse));
+                  }
+                } else {
+                  segments.push('[FunctionResponse] ' + JSON.stringify(functionResponse));
+                }
+              } else {
+                segments.push('[FunctionResponse] ' + JSON.stringify(functionResponse));
+              }
             }
           }
           const text = segments.join('\n');
@@ -511,6 +547,20 @@ export class LocalAdapter implements ContentGenerator {
     const googleTools = config?.tools || requestAny?.tools;
     const localTools = this.convertToTools(googleTools as unknown[]);
     
+    // 添加调试信息
+    console.log('[localAdapter] messages array:', JSON.stringify(messages, null, 2));
+    console.log('[localAdapter] messages count:', messages.length);
+    
+    // 检查每个消息的类型
+    messages.forEach((msg, index) => {
+      console.log(`[localAdapter] message[${index}]:`, {
+        role: msg.role,
+        contentType: typeof msg.content,
+        contentLength: msg.content.length,
+        contentPreview: msg.content.substring(0, 100) + (msg.content.length > 100 ? '...' : '')
+      });
+    });
+    
     // 获取模型名称并检测模型类型
     const modelName = (requestAny?.model as string) || 'local-chat';
     const modelType = this.detectModelType(modelName);
@@ -526,7 +576,7 @@ export class LocalAdapter implements ContentGenerator {
       stream: config?.stream ?? false,
       temperature: config?.temperature ?? 1,
       top_p: config?.top_p ?? 1,
-      max_tokens: config?.maxOutputTokens ?? 2048,
+      max_tokens: config?.maxOutputTokens ?? 20480,
       presence_penalty: config?.presence_penalty ?? 0,
       frequency_penalty: config?.frequency_penalty ?? 0,
       stop: config?.stop ?? null,
@@ -535,6 +585,7 @@ export class LocalAdapter implements ContentGenerator {
       response_format: config?.response_format ?? { type: 'text' },
       stream_options: config?.stream_options ?? null,
       tool_choice: config?.tool_choice ?? 'auto',
+      Authorization: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJhcHBJZCI6ImFnZW50IiwidXNlcklkIjoiMzc2NyIsInVzZXJuYW1lIjoieGllZGNoaXRpYW4iLCJleHAiOjE3NTY1MzI1MTR9.MrAdGAd6IciSKiY978CgG-VkD5KKsrwBYSomAVV9X-o',  // 新增：默认Authorization token
     };
 
     // console.log('[localAdapter] requestObj:', requestObj);
