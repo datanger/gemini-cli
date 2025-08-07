@@ -18,7 +18,6 @@ import { DEFAULT_GEMINI_MODEL } from '../config/models.js';
 import { getEffectiveModel } from './modelCheck.js';
 import { LocalAdapter } from './localAdapter.js';
 import { OpenAIAdapter } from './openaiAdapter.js';
-import { OllamaAdapter } from './ollamaAdapter.js';
 
 /**
  * Interface abstracting the core functionalities for generating content and counting tokens.
@@ -127,7 +126,14 @@ export async function createContentGenerator(
     const apiBase = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
     const apiVersion = process.env.OPENAI_API_VERSION || '';
     const apiModel = config.apiVersion || config.model || process.env.OPENAI_API_MODEL || 'gpt-3.5-turbo';
-    return new OpenAIAdapter({ apiKey, apiBase, apiVersion, apiModel });
+    return new OpenAIAdapter({
+      provider: 'openai',
+      model: apiModel,
+      baseUrl: apiBase,
+      apiKey,
+      apiVersion,
+      verify: true
+    });
   }
   
   if (provider === 'deepseek') {
@@ -135,12 +141,27 @@ export async function createContentGenerator(
     const apiBase = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/v1';
     const apiVersion = config.apiVersion || process.env.DEEPSEEK_API_VERSION || '';
     const apiModel = config.model || process.env.DEEPSEEK_API_MODEL || 'deepseek-chat';
-    return new OpenAIAdapter({ apiKey, apiBase, apiVersion, apiModel });
+    return new OpenAIAdapter({
+      provider: 'deepseek',
+      model: apiModel,
+      baseUrl: apiBase,
+      apiKey,
+      apiVersion,
+      verify: true
+    });
   }
 
   if (provider === 'ollama') {
     const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-    return new OllamaAdapter(baseUrl);
+    const apiModel = config.model || process.env.OLLAMA_MODEL || 'llama2';
+    return new OpenAIAdapter({
+      provider: 'ollama',
+      model: apiModel,
+      baseUrl: baseUrl,
+      apiKey: '',
+      apiVersion: '',
+      verify: false
+    });
   }
 
   if (provider === 'local') {

@@ -13,38 +13,76 @@ import {
   EmbedContentParameters,
 } from '@google/genai';
 
+export interface OpenAIAdapterConfig {
+  provider: 'openai' | 'deepseek' | 'ollama' | 'local';
+  model: string;
+  baseUrl: string;
+  apiKey?: string;
+  apiVersion?: string;
+  stream?: boolean;
+  verify?: boolean; // 是否启用 SSL 验证
+}
+
 export class OpenAIAdapter {
-  private apiKey: string;
-  private apiBase: string;
-  private apiVersion: string;
-  private apiModel: string;
+  private config: OpenAIAdapterConfig;
   private openai: any;
 
-  constructor({
-    apiKey,
-    apiBase,
-    apiVersion,
-    apiModel,
-  }: {
-    apiKey: string;
-    apiBase: string;
-    apiVersion: string;
-    apiModel: string;
-  }) {
-    this.apiKey = apiKey;
-    this.apiBase = apiBase;
-    this.apiVersion = apiVersion;
-    this.apiModel = apiModel;
+  constructor(config: OpenAIAdapterConfig) {
+    this.config = config;
+    
+    // 清除所有代理设置，确保不使用代理
+    const proxyVars = ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'all_proxy'];
+    for (const varName of proxyVars) {
+      if (process.env[varName]) {
+        delete process.env[varName];
+      }
+    }
+    
+
+    // 如果禁用验证，设置环境变量
+    if (this.config.verify === false) {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    }
   }
 
   private async getOpenAI() {
     if (!this.openai) {
       const { OpenAI } = await import('openai');
-      this.openai = new OpenAI({
-        apiKey: this.apiKey,
-        baseURL: this.apiBase,
-        defaultHeaders: this.apiVersion ? { 'OpenAI-Version': this.apiVersion } : undefined,
-      });
+      
+      const openaiConfig: any = {
+        apiKey: this.config.apiKey || 'dummy-key',
+        baseURL: this.config.baseUrl,
+      };
+
+      // 根据 provider 设置不同的配置
+      switch (this.config.provider) {
+        case 'openai':
+          if (this.config.apiVersion) {
+            openaiConfig.defaultHeaders = { 'OpenAI-Version': this.config.apiVersion };
+          }
+          break;
+        case 'deepseek':
+          // DeepSeek 使用标准的 OpenAI 格式
+          break;
+        case 'ollama':
+          // Ollama 使用标准的 OpenAI 格式，但需要确保 baseURL 正确
+          if (!this.config.baseUrl.endsWith('/v1')) {
+            openaiConfig.baseURL = this.config.baseUrl.replace(/\/+$/, '') + '/v1';
+          }
+          break;
+        case 'local':
+          // Local 使用标准的 OpenAI 格式，但需要确保 baseURL 正确
+          if (!this.config.baseUrl.endsWith('/v1')) {
+            openaiConfig.baseURL = this.config.baseUrl.replace(/\/+$/, '') + '/v1';
+          }
+          // Local provider 可能不需要 API key
+          if (!this.config.apiKey) {
+            openaiConfig.apiKey = 'dummy-key';
+          }
+          break;
+      }
+
+      this.openai = new OpenAI(openaiConfig);
     }
     return this.openai;
   }
@@ -82,116 +120,169 @@ export class OpenAIAdapter {
     });
   }
 
-  async generateContent(request: GenerateContentParameters): Promise<GenerateContentResponse> {
-    const openai = await this.getOpenAI();
-    const messages = this.toMessages(request.contents);
+  private convertToOpenAITools(geminiTools: any[]): any[] {
+    if (!geminiTools || !Array.isArray(geminiTools)) {
+      return [];
+    }
+
+    const openaiTools = [];
     
-    const requestConfig: any = {
-      model: this.apiModel,
-      messages,
-    };
-    
-    // 处理工具调用 - 将Gemini格式转换为OpenAI格式
-    if ((request as any).config?.tools) {
-      const geminiTools = (request as any).config.tools;
-      const openaiTools = [];
-      
-      for (const toolGroup of geminiTools) {
-        if (toolGroup.functionDeclarations) {
-          for (const funcDecl of toolGroup.functionDeclarations) {
-            openaiTools.push({
-              type: "function",
-              function: {
-                name: funcDecl.name,
-                description: funcDecl.description,
-                parameters: funcDecl.parameters
-              }
-            });
-          }
+    for (const toolGroup of geminiTools) {
+      if (toolGroup.functionDeclarations) {
+        for (const funcDecl of toolGroup.functionDeclarations) {
+          openaiTools.push({
+            type: "function",
+            function: {
+              name: funcDecl.name,
+              description: funcDecl.description,
+              parameters: funcDecl.parameters
+            }
+          });
         }
-      }
-      
-      if (openaiTools.length > 0) {
-        requestConfig.tools = openaiTools;
-        // console.log('[DEBUG] OpenAI tools:', JSON.stringify(openaiTools, null, 2));
       }
     }
     
-    const completion = await openai.chat.completions.create(requestConfig);
-    
-    const response: GenerateContentResponse = {
-      candidates: [
-        {
-          content: {
-            parts: [{ text: completion.choices[0].message.content || '' }],
-            role: 'model',
-          },
-          index: 0,
-          finishReason: completion.choices[0].finish_reason,
-          safetyRatings: [],
-        },
-      ],
-      text: completion.choices[0].message.content || '',
-      data: undefined,
-      functionCalls: completion.choices[0].message.tool_calls?.map((tc: any) => {
-        let args = {};
-        if (tc.function?.arguments) {
-          try {
-            args = JSON.parse(tc.function.arguments);
-          } catch (error) {
-            console.error('[DEBUG] Failed to parse tool arguments:', tc.function.arguments, error);
-            args = {};
-          }
+    return openaiTools;
+  }
+
+  private shouldSkipTools(): boolean {
+    // 根据 provider 和 model 判断是否跳过工具调用
+    switch (this.config.provider) {
+      case 'ollama':
+        // Ollama 的某些模型不支持工具调用
+        // qwen3-coder 支持工具调用，其他 qwen 模型可能不支持
+        if (this.config.model.includes('qwen') && !this.config.model.includes('qwen3-coder')) {
+          return true;
         }
-        return {
-          name: tc.function?.name || '',
-          args,
-          id: tc.id
-        };
-      }) || undefined,
-      executableCode: undefined,
-      codeExecutionResult: undefined,
-    };
+        break;
+      case 'local':
+        // Local provider 可能不支持某些工具调用
+        if (this.config.model.includes('deepseek-chat')) {
+          // 检查是否支持工具调用
+          return false; // 默认支持
+        }
+        break;
+      case 'deepseek':
+        // DeepSeek 支持工具调用
+        return false;
+      case 'openai':
+        // OpenAI 支持工具调用
+        return false;
+    }
+    return false;
+  }
+
+  async generateContent(request: GenerateContentParameters): Promise<GenerateContentResponse> {
+    const openai = await this.getOpenAI();
+    const messages = this.toMessages(request.contents);
+    const requestAny = request as unknown as Record<string, unknown>;
+    const config = requestAny?.config as Record<string, unknown> | undefined;
     
-    return response;
+    const requestConfig: any = {
+      model: this.config.model,
+      messages,
+    };
+
+    // 添加可选参数
+    if (config?.temperature !== undefined) {
+      requestConfig.temperature = config.temperature;
+    }
+    if (config?.maxOutputTokens !== undefined) {
+      requestConfig.max_tokens = config.maxOutputTokens;
+    }
+    if (config?.top_p !== undefined) {
+      requestConfig.top_p = config.top_p;
+    }
+    
+    // 处理工具调用 - 将Gemini格式转换为OpenAI格式
+    if ((request as any).config?.tools && !this.shouldSkipTools()) {
+      const geminiTools = (request as any).config.tools;
+      const openaiTools = this.convertToOpenAITools(geminiTools);
+      
+      if (openaiTools.length > 0) {
+        requestConfig.tools = openaiTools;
+        requestConfig.tool_choice = 'auto';
+      }
+    }
+    
+    try {
+      const completion = await openai.chat.completions.create(requestConfig);
+      
+      const response: GenerateContentResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{ text: completion.choices[0].message.content || '' }],
+              role: 'model',
+            },
+            index: 0,
+            finishReason: completion.choices[0].finish_reason,
+            safetyRatings: [],
+          },
+        ],
+        text: completion.choices[0].message.content || '',
+        data: undefined,
+        functionCalls: completion.choices[0].message.tool_calls?.map((tc: any) => {
+          let args = {};
+          if (tc.function?.arguments) {
+            try {
+              args = JSON.parse(tc.function.arguments);
+            } catch (error) {
+              args = {};
+            }
+          }
+          return {
+            name: tc.function?.name || '',
+            args,
+            id: tc.id
+          };
+        }) || undefined,
+        executableCode: undefined,
+        codeExecutionResult: undefined,
+      };
+      
+      return response;
+    } catch (error) {
+      // 为 local provider 添加特殊的错误处理
+      if (this.config.provider === 'local') {
+        console.error(`[Local Provider Error] ${this.config.baseUrl}:`, error);
+        throw new Error(`Local provider error: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      throw error;
+    }
   }
 
   async generateContentStream(request: GenerateContentParameters): Promise<AsyncGenerator<GenerateContentResponse>> {
     const openai = await this.getOpenAI();
     const messages = this.toMessages(request.contents);
+    const requestAny = request as unknown as Record<string, unknown>;
+    const config = requestAny?.config as Record<string, unknown> | undefined;
     
     const requestConfig: any = {
-      model: this.apiModel,
+      model: this.config.model,
       messages,
       stream: true,
     };
+
+    // 添加可选参数
+    if (config?.temperature !== undefined) {
+      requestConfig.temperature = config.temperature;
+    }
+    if (config?.maxOutputTokens !== undefined) {
+      requestConfig.max_tokens = config.maxOutputTokens;
+    }
+    if (config?.top_p !== undefined) {
+      requestConfig.top_p = config.top_p;
+    }
     
     // 处理工具调用 - 将Gemini格式转换为OpenAI格式
-    if ((request as any).config?.tools) {
+    if ((request as any).config?.tools && !this.shouldSkipTools()) {
       const geminiTools = (request as any).config.tools;
-      const openaiTools = [];
-      
-      for (const toolGroup of geminiTools) {
-        if (toolGroup.functionDeclarations) {
-          for (const funcDecl of toolGroup.functionDeclarations) {
-            openaiTools.push({
-              type: "function",
-              function: {
-                name: funcDecl.name,
-                description: funcDecl.description,
-                parameters: funcDecl.parameters
-              }
-            });
-          }
-        }
-      }
-
-      // 此处增加openaiTools日志
-      // console.log('[DEBUG] OpenAI tools:', JSON.stringify(openaiTools, null, 2));
+      const openaiTools = this.convertToOpenAITools(geminiTools);
       
       if (openaiTools.length > 0) {
         requestConfig.tools = openaiTools;
-        // console.log('[DEBUG] OpenAI tools:', JSON.stringify(openaiTools, null, 2));
+        requestConfig.tool_choice = 'auto';
       }
     }
     
@@ -205,8 +296,6 @@ export class OpenAIAdapter {
     async function* gen() {
       for await (const chunk of stream) {
         // 处理工具调用
-        // console.log('\n[DEBUG] OpenAI tool calls:', JSON.stringify(chunk.choices[0]?.delta?.tool_calls, null, 2));
-        // console.log('\n[DEBUG] OpenAI contents:', JSON.stringify(chunk.choices[0]?.delta?.content, null, 2));
         if (chunk.choices[0]?.delta?.tool_calls) {
           hasToolCalls = true;
           for (const toolCall of chunk.choices[0].delta.tool_calls) {
@@ -331,7 +420,7 @@ export class OpenAIAdapter {
       ? request.contents.map((c: any) => Array.isArray(c.parts) ? c.parts.map((p: any) => p.text).join('') : '').join('\n')
       : '';
     const embedding = await openai.embeddings.create({
-      model: this.apiModel,
+      model: this.config.model,
       input,
     });
     return {
