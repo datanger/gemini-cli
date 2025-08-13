@@ -1116,6 +1116,24 @@ export function useTextBuffer({
         process.env['VISUAL'] ??
         process.env['EDITOR'] ??
         (process.platform === 'win32' ? 'notepad' : 'vi');
+
+      // 解析可选的内联参数，例如 "code -w" 或 "gedit --wait"
+      let command = editor;
+      let editorArgs: string[] = [];
+      if (editor.includes(' ')) {
+        const parts = editor.split(/\s+/);
+        command = parts[0];
+        editorArgs = parts.slice(1);
+      }
+
+      // 针对常见 GUI/CLI 编辑器添加“等待”参数，确保同步阻塞直到窗口关闭
+      const baseName = pathMod.basename(command).toLowerCase();
+      if (baseName === 'gedit' && !editorArgs.includes('--wait')) editorArgs.push('--wait');
+      if ((baseName === 'code' || baseName === 'code-insiders' || baseName === 'codium') && !editorArgs.includes('-w')) editorArgs.push('-w');
+      if (baseName === 'atom' && !editorArgs.includes('--wait')) editorArgs.push('--wait');
+      if ((baseName === 'subl' || baseName === 'mate') && !editorArgs.includes('-w')) editorArgs.push('-w');
+      if (baseName === 'gvim' && !editorArgs.includes('-f')) editorArgs.push('-f');
+
       const tmpDir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'gemini-edit-'));
       const filePath = pathMod.join(tmpDir, 'buffer.txt');
       fs.writeFileSync(filePath, text, 'utf8');
@@ -1125,7 +1143,7 @@ export function useTextBuffer({
       const wasRaw = stdin?.isRaw ?? false;
       try {
         setRawMode?.(false);
-        const { status, error } = spawnSync(editor, [filePath], {
+        const { status, error } = spawnSync(command, [...editorArgs, filePath], {
           stdio: 'inherit',
         });
         if (error) throw error;
@@ -1139,16 +1157,8 @@ export function useTextBuffer({
         console.error('[useTextBuffer] external editor error', err);
       } finally {
         if (wasRaw) setRawMode?.(true);
-        try {
-          fs.unlinkSync(filePath);
-        } catch {
-          /* ignore */
-        }
-        try {
-          fs.rmdirSync(tmpDir);
-        } catch {
-          /* ignore */
-        }
+        try { fs.unlinkSync(filePath); } catch {}
+        try { fs.rmdirSync(tmpDir); } catch {}
       }
     },
     [text, stdin, setRawMode],

@@ -225,6 +225,12 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
           completion.resetCompletionState();
           return;
         }
+
+        // F2: Open external editor (VS Code) and wait
+        if (key.name === 'f2') {
+          buffer.openInExternalEditor({ editor: 'code -w' }).catch(() => {});
+          return;
+        }
       }
 
       // Ctrl+A (Home)
