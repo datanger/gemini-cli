@@ -63,7 +63,7 @@ class MCPRecursiveAnalyzerServer:
         self.tools = {
             "matlab_recursive_analyze": {
                 "name": "matlab_recursive_analyze",
-                "description": "MATLAB脚本递归调用链分析工具。输入为MATLAB项目路径、入口脚本和分析脚本，工具会分析从入口脚本到分析脚本的调用链，以及从分析脚本到叶子节点的调用链，返回两个嵌套列表格式的结果。适用于需要分析MATLAB脚本调用关系的场景。",
+                "description": "MATLAB脚本递归调用链分析工具。可输入项目路径、入口脚本与分析目标脚本。支持四种情况：1) 同时提供入口与目标：返回入口->目标路径与目标->所有叶子路径；2) 仅入口：分析该入口到所有叶子路径；3) 仅目标：将目标视为入口，分析其到所有叶子路径；4) 都未提供：返回空结果。",
                 "inputSchema": self._normalize_schema({
                     "type": "object",
                     "properties": {
@@ -73,54 +73,18 @@ class MCPRecursiveAnalyzerServer:
                         },
                         "entry_script": {
                             "type": "string",
-                            "description": "入口脚本名称（相对于项目路径，必填）"
+                            "description": "入口脚本名称（相对于项目路径，可选）"
                         },
                         "analysis_script": {
                             "type": "string",
-                            "description": "分析脚本名称（相对于项目路径，必填）"
-                        }
-                    },
-                    "required": ["entry_script", "analysis_script"],
-                    "additionalProperties": False
-                })
-            },
-            "matlab_project_overview": {
-                "name": "matlab_project_overview",
-                "description": "获取MATLAB项目的概览信息，包括总脚本数、调用关系数等统计信息。",
-                "inputSchema": self._normalize_schema({
-                    "type": "object",
-                    "properties": {
-                        "project_path": {
-                            "type": "string",
-                            "description": "MATLAB项目根目录路径（可选，如未提供将使用预设值）"
+                            "description": "目标脚本名称（相对于项目路径，可选）"
+                        },
+                        "force_rescan": {
+                            "type": "boolean",
+                            "description": "是否强制重新扫描工程（可选，默认 false）"
                         }
                     },
                     "required": [],
-                    "additionalProperties": False
-                })
-            },
-            "matlab_impact_from_git_diff": {
-                "name": "matlab_impact_from_git_diff",
-                "description": "Impact analysis of MATLAB code based on changed scripts (e.g., from git diff). Given changed .m files, returns upstream paths from project roots to each changed script and downstream paths from each changed script to leaves.",
-                "inputSchema": self._normalize_schema({
-                    "type": "object",
-                    "properties": {
-                        "changed_scripts": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of changed MATLAB scripts (relative to project_path)."
-                        },
-                        "project_path": {
-                            "type": "string",
-                            "description": "MATLAB project root (optional; defaults to process cwd)."
-                        },
-                        "entry_roots": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Optional explicit entry root scripts. If omitted, roots are auto-detected (not called by others)."
-                        }
-                    },
-                    "required": ["changed_scripts"],
                     "additionalProperties": False
                 })
             }
@@ -202,50 +166,79 @@ class MCPRecursiveAnalyzerServer:
     async def execute_matlab_recursive_analyze(self, **kwargs) -> str:
         """执行MATLAB递归调用链分析工具"""
         try:
-            # project_path 可从参数或预设环境变量读取；entry_script、analysis_script 必须由调用方提供
+            # 参数解析
             project_path = kwargs.get('project_path') or os.environ.get('DEFAULT_PROJECT_PATH') or os.getcwd()
             entry_script = kwargs.get('entry_script')
             analysis_script = kwargs.get('analysis_script')
             force_rescan = bool(kwargs.get('force_rescan', False))
-            
-            # 参数验证
-            if not project_path or not entry_script or not analysis_script:
-                raise ValueError("缺少必要参数: project_path, entry_script, analysis_script。请检查参数或环境变量设置。")
-            
+
+            # 情况 4：无入口、无目标，直接返回空
+            if not entry_script and not analysis_script:
+                return json.dumps({
+                    "result": {},
+                    "info": {
+                        "reason": "no entry_script or analysis_script provided"
+                    }
+                }, ensure_ascii=False, indent=2)
+
             # 验证项目路径
-            if not Path(project_path).exists():
-                raise ValueError(f"项目路径不存在: {project_path}")
-            
+            if not project_path or not Path(project_path).exists():
+                raise ValueError(f"项目路径不存在或无效: {project_path}")
+
             # 获取分析器
             analyzer = self._get_analyzer(project_path)
             if force_rescan:
                 analyzer.reset()
-            
-            # 执行分析
-            entry_to_analysis_path, analysis_to_leaves_paths = analyzer.analyze_specific_paths(entry_script, analysis_script)
-            
-            # 构建返回结果（将两个列表嵌套为包含 data 与 description 的字典）
-            result = {
-                "entry_to_analysis": {
-                    "data": entry_to_analysis_path,
-                    "description": "One shortest path from entry_script to analysis_script. Each element is a script path relative to project_path."
-                },
-                "analysis_to_leaves": {
-                    "data": analysis_to_leaves_paths,
-                    "description": "All paths from analysis_script to all reachable leaf scripts. Each path is a list of script paths relative to project_path, in call order."
-                },
-                "analysis_info": {
-                    "project_path": project_path,
-                    "entry_script": entry_script,
-                    "analysis_script": analysis_script,
-                    "entry_path_length": len(entry_to_analysis_path) if entry_to_analysis_path else 0,
-                    "leaves_paths_count": len(analysis_to_leaves_paths)
-                },
-                "analysis_time": datetime.now().isoformat(),
-                "input_parameters": kwargs
-            }
-            
-            return json.dumps(result, ensure_ascii=False, indent=2)
+
+            def build_result(entry_to_analysis_path, downstream_paths, eff_entry, eff_target):
+                return {
+                    "entry_to_analysis": {
+                        "data": entry_to_analysis_path or [],
+                        "description": "One shortest path from entry_script to analysis_script (if both provided)."
+                    },
+                    "analysis_to_leaves": {
+                        "data": downstream_paths or [],
+                        "description": "All paths from the effective analysis script (or entry if only one provided) to leaves."
+                    },
+                    "analysis_info": {
+                        "project_path": project_path,
+                        "entry_script": eff_entry,
+                        "analysis_script": eff_target,
+                        "entry_path_length": len(entry_to_analysis_path or []),
+                        "leaves_paths_count": len(downstream_paths or [])
+                    },
+                    "analysis_time": datetime.now().isoformat(),
+                    "input_parameters": kwargs
+                }
+
+            # 情况 1：同时提供入口与目标
+            if entry_script and analysis_script:
+                # 先自顶向下构建图
+                analyzer.analyze_recursive_calls(entry_script)
+                # 入口->目标路径
+                entry_to_analysis_path = analyzer._find_path_to_script(entry_script, analysis_script)
+                # 目标->叶子路径
+                downstream_paths = analyzer._find_paths_to_leaves(analysis_script)
+                result = build_result(entry_to_analysis_path, downstream_paths, entry_script, analysis_script)
+                return json.dumps(result, ensure_ascii=False, indent=2)
+
+            # 情况 2：仅入口
+            if entry_script and not analysis_script:
+                analyzer.analyze_recursive_calls(entry_script)
+                downstream_paths = analyzer._find_paths_to_leaves(entry_script)
+                result = build_result([], downstream_paths, entry_script, None)
+                return json.dumps(result, ensure_ascii=False, indent=2)
+
+            # 情况 3：仅目标 -> 视为入口
+            if analysis_script and not entry_script:
+                analyzer.analyze_recursive_calls(analysis_script)
+                downstream_paths = analyzer._find_paths_to_leaves(analysis_script)
+                # 入口==目标时，入口->目标的“路径”可视为 [analysis_script]
+                result = build_result([analysis_script], downstream_paths, analysis_script, analysis_script)
+                return json.dumps(result, ensure_ascii=False, indent=2)
+
+            # 兜底（不应到达）
+            return json.dumps({"result": {}}, ensure_ascii=False, indent=2)
         except Exception as e:
             self.logger.error(f"执行MATLAB递归调用链分析失败: {e}")
             error_result = {
@@ -253,121 +246,6 @@ class MCPRecursiveAnalyzerServer:
                 "analysis_time": datetime.now().isoformat(),
                 "input_parameters": kwargs
             }
-            return json.dumps(error_result, ensure_ascii=False, indent=2)
-
-    async def execute_matlab_project_overview(self, **kwargs) -> str:
-        """执行MATLAB项目概览工具"""
-        try:
-            # 从参数中获取，如果没有则使用环境变量中的预设值
-            project_path = kwargs.get('project_path') or os.environ.get('DEFAULT_PROJECT_PATH') or os.getcwd()
-            
-            # 参数验证
-            if not project_path:
-                raise ValueError("缺少必要参数: project_path。请检查参数或环境变量设置。")
-            
-            # 验证项目路径
-            if not Path(project_path).exists():
-                raise ValueError(f"项目路径不存在: {project_path}")
-            
-            # 获取分析器
-            analyzer = self._get_analyzer(project_path)
-            
-            # 执行概览分析（使用一个临时入口脚本）
-            # 这里我们使用项目中的第一个.m文件作为入口
-            matlab_files = list(Path(project_path).rglob("*.m"))
-            if not matlab_files:
-                raise ValueError(f"项目路径中没有找到.m文件: {project_path}")
-            
-            # 使用第一个.m文件作为入口进行概览分析
-            entry_script = matlab_files[0].relative_to(Path(project_path)).as_posix()
-            overview_report = analyzer.analyze_recursive_calls(entry_script)
-            
-            # 构建概览结果
-            overview = {
-                "total_scripts": overview_report.get('total_scripts', 0),
-                "call_graph_size": len(overview_report.get('call_graph', {})),
-                "max_recursion_depth": max(overview_report.get('recursion_depth', {}).values()) if overview_report.get('recursion_depth') else 0,
-                "total_visits": sum(overview_report.get('visited_count', {}).values()),
-                "project_path": project_path,
-                "entry_script_used": entry_script
-            }
-            
-            # 构建返回结果
-            result = {
-                "overview": overview,
-                "analysis_time": datetime.now().isoformat(),
-                "input_parameters": kwargs
-            }
-            
-            result_json = json.dumps(result, ensure_ascii=False, indent=2)
-            
-            # 保存结果到文件（可选）
-            try:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"matlab_project_overview_{timestamp}.json"
-                # 将结果保存到当前工程根目录下
-                project_root = os.path.abspath(os.path.join(CURRENT_DIR, "..", "..", ".."))
-                filepath = os.path.join(project_root, filename)
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(result_json)
-                self.logger.info(f"概览结果已保存到: {filepath}")
-                
-                # 在返回结果中添加文件保存信息
-                result_with_file_info = {
-                    "overview": overview,
-                    "analysis_time": datetime.now().isoformat(),
-                    "input_parameters": kwargs,
-                    "file_saved": {
-                        "path": filepath,
-                        "filename": filename,
-                        "timestamp": timestamp
-                    }
-                }
-                
-                return json.dumps(result_with_file_info, ensure_ascii=False, indent=2)
-                
-            except Exception as e:
-                self.logger.error(f"保存概览结果到文件时出错: {e}")
-                # 即使保存失败，也返回原始结果
-                return result_json
-                
-        except Exception as e:
-            self.logger.error(f"执行MATLAB项目概览失败: {e}")
-            error_result = {
-                "error": str(e),
-                "analysis_time": datetime.now().isoformat(),
-                "input_parameters": kwargs
-            }
-            return json.dumps(error_result, ensure_ascii=False, indent=2)
-
-    async def execute_matlab_impact_from_git_diff(self, **kwargs) -> str:
-        """执行基于变更脚本的影响分析工具"""
-        try:
-            changed_scripts: List[str] = kwargs.get('changed_scripts') or []
-            project_path = kwargs.get('project_path') or os.environ.get('DEFAULT_PROJECT_PATH') or os.getcwd()
-            entry_roots: Optional[List[str]] = kwargs.get('entry_roots')
-            force_rescan = bool(kwargs.get('force_rescan', False))
-
-            if not changed_scripts:
-                raise ValueError("缺少必要参数: changed_scripts")
-            if not Path(project_path).exists():
-                raise ValueError(f"项目路径不存在: {project_path}")
-
-            analyzer = self._get_analyzer(project_path)
-            if force_rescan:
-                analyzer.reset()
-            impact = analyzer.analyze_impact_for_changes(changed_scripts, entry_roots=entry_roots)
-
-            result = {
-                "impact": impact,
-                "analysis_time": datetime.now().isoformat(),
-                "input_parameters": kwargs,
-                "project_path": project_path,
-            }
-            return json.dumps(result, ensure_ascii=False, indent=2)
-        except Exception as e:
-            self.logger.error(f"执行影响分析失败: {e}")
-            error_result = {"error": str(e), "input_parameters": kwargs}
             return json.dumps(error_result, ensure_ascii=False, indent=2)
 
     async def handle_tools_call(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -380,10 +258,6 @@ class MCPRecursiveAnalyzerServer:
         try:
             if tool_name == 'matlab_recursive_analyze':
                 result_text = await self.execute_matlab_recursive_analyze(**arguments)
-            elif tool_name == 'matlab_project_overview':
-                result_text = await self.execute_matlab_project_overview(**arguments)
-            elif tool_name == 'matlab_impact_from_git_diff':
-                result_text = await self.execute_matlab_impact_from_git_diff(**arguments)
             else:
                 result_text = f"错误: 未知工具 '{tool_name}'"
             
