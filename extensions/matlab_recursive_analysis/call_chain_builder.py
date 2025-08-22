@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional
 from collections import defaultdict, deque
-from script_parser import MATLABScriptParser
+from script_parser import ImprovedMATLABScriptParser
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,9 +28,9 @@ class CallChainBuilder:
             project_path: MATLAB工程根目录路径
         """
         self.project_path = Path(project_path)
-        self.parser = MATLABScriptParser(project_path)
+        self.parser = ImprovedMATLABScriptParser(project_path)
         self.script_functions: Dict[str, Set[str]] = {}
-        self.function_scripts: Dict[str, str] = {}
+        self.function_scripts: Dict[str, List[str]] = {}
         self.script_calls: Dict[str, Set[str]] = {}
         self.call_graph: Dict[str, Set[str]] = defaultdict(set)  # 脚本间的调用关系图
         self.visited: Set[str] = set()  # 已访问的脚本
@@ -78,16 +78,38 @@ class CallChainBuilder:
         logger.info(f"解析完成，共 {len(self.script_functions)} 个脚本文件")
     
     def _build_call_graph(self) -> None:
-        """构建脚本间的调用关系图"""
+        """构建脚本间的调用关系图（考虑MATLAB函数优先级规则）"""
         logger.info("构建调用关系图...")
         
         for script_name, calls in self.script_calls.items():
             for func_call in calls:
                 # 检查这个函数调用是否对应某个脚本中定义的函数
                 if func_call in self.function_scripts:
-                    called_script = self.function_scripts[func_call]
-                    if called_script != script_name:  # 避免自调用
-                        self.call_graph[script_name].add(called_script)
+                    # 检查是否应该建立外部调用关系
+                    should_create_external_call = True
+                    
+                    # 如果调用脚本有内部定义，检查优先级
+                    if script_name in self.function_scripts[func_call]:
+                        # 使用新的优先级检查方法
+                        func_info = self.parser.get_function_definition_for_script(func_call, script_name)
+                        if func_info.get('is_internal_definition', False):
+                            should_create_external_call = False
+                            logger.debug(f"脚本 {script_name} 有 {func_call} 的内部定义，跳过外部调用关系")
+                    
+                    # 只有在需要外部调用时才建立关系
+                    if should_create_external_call:
+                        # 处理多关联映射：function_scripts[func_call] 现在是 List[str]
+                        called_scripts = self.function_scripts[func_call]
+                        if isinstance(called_scripts, list):
+                            # 使用主定义（列表中的第一个）
+                            called_script = called_scripts[0] if called_scripts else None
+                        else:
+                            # 兼容旧版本（单一映射）
+                            called_script = called_scripts
+                        
+                        if called_script and called_script != script_name:  # 避免自调用
+                            self.call_graph[script_name].add(called_script)
+                            logger.debug(f"建立调用关系: {script_name} -> {called_script} (函数: {func_call})")
         
         logger.info(f"调用关系图构建完成，共 {len(self.call_graph)} 个脚本有调用关系")
     
