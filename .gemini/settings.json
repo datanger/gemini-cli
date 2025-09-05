@@ -4,13 +4,13 @@
     "matlabRecursiveAnalyzer": {
       "command": "python3",
       "args": [
-        "/home/kotei/work/nj/gemini-cli/extensions/matlab_recursive_analysis/mcp_recursive_analyzer_server.py"
+        "/home/kotei/work/nj/gemini-cli/.gemini/mcp/matlab_recursive_analysis/mcp_recursive_analyzer_server.py"
       ],
-      "cwd": "/home/kotei/work/nj/gemini-cli/extensions/matlab_recursive_analysis",
+      "cwd": "/home/kotei/work/nj/gemini-cli/.gemini/mcp/matlab_recursive_analysis",
       "timeout": 120000,
       "trust": true,
       "env": {
-        "PYTHONPATH": "/home/kotei/work/nj/gemini-cli/extensions/matlab_recursive_analysis"
+        "PYTHONPATH": "/home/kotei/work/nj/gemini-cli/.gemini/mcp/matlab_recursive_analysis"
       }
     }
   },
